@@ -301,20 +301,36 @@ ipcMain.handle('get-advanced-stats', async (_event, dirPath: string) => {
     const duplicateGroups = Array.from(hashes.values()).filter(paths => paths.length > 1)
     const duplicateCount = duplicateGroups.reduce((acc, curr) => acc + curr.length, 0)
     const duplicateSize = duplicateGroups.reduce((acc, curr) => {
-      // Size of the extra copies only
       const stats = fs_native.statSync(curr[0])
       return acc + (stats.size * (curr.length - 1))
     }, 0)
 
     return {
       categories,
-      largeFiles: largeFiles.sort((a, b) => b.size - a.size).slice(0, 10),
-      recentFiles: recentFiles.sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 10),
+      largeFiles: largeFiles.sort((a, b) => b.size - a.size).slice(0, 20),
+      recentFiles: recentFiles.sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 20),
+      redundantFiles: redundantFiles.map(f => f.path),
       redundantCount: redundantFiles.length,
       redundantSize: redundantFiles.reduce((acc, curr) => acc + curr.size, 0),
+      duplicateGroups,
       duplicateCount,
       duplicateSize
     }
+  } catch (error: any) {
+    return { error: error.message }
+  }
+})
+
+ipcMain.handle('reveal-in-explorer', (_event, filePath: string) => {
+  shell.showItemInFolder(filePath)
+})
+
+ipcMain.handle('delete-files-bulk', async (_event, filePaths: string[]) => {
+  try {
+    for (const p of filePaths) {
+      await fs.unlink(p)
+    }
+    return { success: true }
   } catch (error: any) {
     return { error: error.message }
   }

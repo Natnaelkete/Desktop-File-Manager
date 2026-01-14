@@ -14,6 +14,8 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   batchRename: (paths, pattern, replacement) => electron.ipcRenderer.invoke("batch-rename", paths, pattern, replacement),
   readFile: (path) => electron.ipcRenderer.invoke("read-file", path),
   writeFile: (path, content) => electron.ipcRenderer.invoke("write-file", path, content),
+  revealInExplorer: (path) => electron.ipcRenderer.invoke("reveal-in-explorer", path),
+  deleteFilesBulk: (paths) => electron.ipcRenderer.invoke("delete-files-bulk", paths),
   onMainMessage: (callback) => electron.ipcRenderer.on("main-process-message", (_event, value) => callback(value))
 });
 console.log("Preload script loaded with advanced stats support");

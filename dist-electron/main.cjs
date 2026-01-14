@@ -276,13 +276,28 @@ electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
     }, 0);
     return {
       categories,
-      largeFiles: largeFiles.sort((a, b) => b.size - a.size).slice(0, 10),
-      recentFiles: recentFiles.sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 10),
+      largeFiles: largeFiles.sort((a, b) => b.size - a.size).slice(0, 20),
+      recentFiles: recentFiles.sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 20),
+      redundantFiles: redundantFiles.map((f) => f.path),
       redundantCount: redundantFiles.length,
       redundantSize: redundantFiles.reduce((acc, curr) => acc + curr.size, 0),
+      duplicateGroups,
       duplicateCount,
       duplicateSize
     };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+electron.ipcMain.handle("reveal-in-explorer", (_event, filePath) => {
+  electron.shell.showItemInFolder(filePath);
+});
+electron.ipcMain.handle("delete-files-bulk", async (_event, filePaths) => {
+  try {
+    for (const p of filePaths) {
+      await fs.unlink(p);
+    }
+    return { success: true };
   } catch (error) {
     return { error: error.message };
   }

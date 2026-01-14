@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   batchRename: (paths: string[], pattern: string, replacement: string) => ipcRenderer.invoke('batch-rename', paths, pattern, replacement),
   readFile: (path: string) => ipcRenderer.invoke('read-file', path),
   writeFile: (path: string, content: string) => ipcRenderer.invoke('write-file', path, content),
+  revealInExplorer: (path: string) => ipcRenderer.invoke('reveal-in-explorer', path),
+  deleteFilesBulk: (paths: string[]) => ipcRenderer.invoke('delete-files-bulk', paths),
   onMainMessage: (callback: any) => ipcRenderer.on('main-process-message', (_event, value) => callback(value)),
 })
 

@@ -14,7 +14,9 @@ import {
   AlertCircle,
   Clock,
   ExternalLink,
-  Copy
+  Copy,
+  FolderOpen,
+  Info
 } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts'
 import { clsx } from 'clsx'
@@ -29,16 +31,19 @@ const COLORS = ['#0ea5e9', '#8b5cf6', '#f43f5e', '#10b981', '#f59e0b', '#64748b'
 const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [view, setView] = useState<'dashboard' | 'duplicates'>('dashboard')
+  const [cleaning, setCleaning] = useState(false)
+
+  const fetchStats = async () => {
+    setLoading(true)
+    const stats = await (window as any).electronAPI.getAdvancedStats(path)
+    if (!stats.error) {
+      setData(stats)
+    }
+    setLoading(false)
+  }
 
   useEffect(() => {
-    const fetchStats = async () => {
-      setLoading(true)
-      const stats = await (window as any).electronAPI.getAdvancedStats(path)
-      if (!stats.error) {
-        setData(stats)
-      }
-      setLoading(false)
-    }
     fetchStats()
   }, [path])
 
@@ -50,7 +55,22 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
-  if (loading) {
+  const handleReveal = (filePath: string) => {
+    (window as any).electronAPI.revealInExplorer(filePath)
+  }
+
+  const handleCleanJunk = async () => {
+    if (!data?.redundantFiles?.length) return
+    const confirmed = window.confirm(`Are you sure you want to delete ${data.redundantCount} junk files? This action is permanent.`)
+    if (confirmed) {
+      setCleaning(true)
+      await (window as any).electronAPI.deleteFilesBulk(data.redundantFiles)
+      await fetchStats()
+      setCleaning(false)
+    }
+  }
+
+  if (loading && !cleaning) {
     return (
       <div className="h-full flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950">
         <Loader2 className="animate-spin text-primary-500 mb-4" size={48} />
@@ -67,8 +87,76 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
     value: cat.size
   })).filter(c => c.value > 0)
 
+  // Duplicates List View
+  if (view === 'duplicates') {
+    return (
+      <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-950">
+        <div className="h-14 flex items-center px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm z-10 shrink-0">
+          <button 
+            onClick={() => setView('dashboard')}
+            className="p-2 -ml-2 mr-4 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="flex flex-col">
+            <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+              <Copy size={16} className="text-rose-500" />
+              Duplicate Groups
+            </h2>
+            <span className="text-[10px] text-slate-400 font-mono tracking-tight">{data.duplicateCount} files matched</span>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin">
+          {data.duplicateGroups.map((group: string[], idx: number) => (
+            <div key={idx} className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-rose-500/10 flex items-center justify-center text-rose-500 font-bold text-xs">
+                    {idx + 1}
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate max-w-[400px]">
+                    {group[0].split('\\').pop() || group[0].split('/').pop()}
+                  </h3>
+                </div>
+                <span className="text-[11px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
+                   {group.length} occurrences
+                </span>
+              </div>
+              <div className="space-y-2 border-l-2 border-slate-100 dark:border-slate-800 ml-4 pl-4">
+                {group.map((p, pIdx) => (
+                  <div key={pIdx} className="flex items-center justify-between group py-1">
+                    <span className="text-[11px] text-slate-500 truncate max-w-[500px] font-mono">{p}</span>
+                    <button 
+                      onClick={() => handleReveal(p)}
+                      className="p-1.5 rounded-lg text-slate-300 hover:text-primary-500 hover:bg-primary-500/10 transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <FolderOpen size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {data.duplicateGroups.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-50 space-y-4">
+              <Copy size={64} />
+              <p className="text-lg font-medium">No identical files found</p>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-950 overflow-hidden">
+    <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-950 overflow-hidden relative">
+      {cleaning && (
+        <div className="absolute inset-0 bg-white/50 dark:bg-slate-950/50 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
+          <Loader2 className="animate-spin text-primary-500 mb-4" size={48} />
+          <p className="text-sm font-bold animate-pulse text-slate-600 dark:text-slate-300">Cleaning Junk Files...</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="h-14 flex items-center px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm z-10 shrink-0">
         <button 
@@ -84,6 +172,13 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
           </h2>
           <span className="text-[10px] text-slate-400 font-mono tracking-tight truncate max-w-[300px]">{path}</span>
         </div>
+        <button 
+          onClick={fetchStats}
+          className="ml-auto p-2 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          title="Refresh Analysis"
+        >
+          <Loader2 size={18} className={clsx(loading && "animate-spin")} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
@@ -135,7 +230,10 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
                 <span className="text-lg font-bold opacity-80 mb-1">items found</span>
               </div>
               <p className="text-sm opacity-90 mb-8 font-medium">Cleaning these .log, .tmp and cache files can free up roughly <span className="font-bold underline">{formatSize(data.redundantSize)}</span> of space.</p>
-              <button className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-6 py-3 rounded-2xl font-bold text-sm transition-all flex items-center gap-2 group w-fit">
+              <button 
+                onClick={handleCleanJunk}
+                className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-6 py-3 rounded-2xl font-bold text-sm transition-all flex items-center gap-2 group w-fit"
+              >
                 <Trash2 size={18} className="group-hover:rotate-12 transition-transform" />
                 Clean Now
               </button>
@@ -154,7 +252,10 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
                 <span className="text-lg font-bold text-slate-400 mb-1">copies</span>
               </div>
               <p className="text-sm text-slate-500 mb-8 px-2">Identical files found in different locations. Potential saving: <span className="text-rose-500 font-bold">{formatSize(data.duplicateSize)}</span></p>
-              <button className="bg-rose-500 hover:bg-rose-600 text-white px-6 py-3 rounded-2xl font-bold text-sm transition-all flex items-center gap-2 group w-fit shadow-lg shadow-rose-500/30">
+              <button 
+                onClick={() => setView('duplicates')}
+                className="bg-rose-500 hover:bg-rose-600 text-white px-6 py-3 rounded-2xl font-bold text-sm transition-all flex items-center gap-2 group w-fit shadow-lg shadow-rose-500/30"
+              >
                 <Copy size={18} className="group-hover:-translate-y-1 transition-transform" />
                 View Duplicates
               </button>
@@ -169,7 +270,7 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-800">
           <div className="flex items-center justify-between mb-6 px-2">
             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest">Large Files</h3>
-            <span className="text-[10px] bg-amber-500/10 text-amber-500 px-2 py-1 rounded-full font-bold">Top 10 ({">"}100MB)</span>
+            <span className="text-[10px] bg-amber-500/10 text-amber-500 px-2 py-1 rounded-full font-bold uppercase">Top 20 ({">"}100MB)</span>
           </div>
           <div className="space-y-3">
             {data.largeFiles.map((file: any) => (
@@ -183,7 +284,10 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-xs font-black text-slate-700 dark:text-slate-200">{formatSize(file.size)}</p>
-                  <button className="text-[10px] text-primary-500 font-bold hover:underline flex items-center gap-0.5 ml-auto">
+                  <button 
+                    onClick={() => handleReveal(file.path)}
+                    className="text-[10px] text-primary-500 font-bold hover:underline flex items-center gap-0.5 ml-auto"
+                  >
                     Details <ChevronRight size={10} />
                   </button>
                 </div>
@@ -213,8 +317,11 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
                     {new Date(file.modifiedAt).toLocaleString()}
                   </p>
                 </div>
-                <button className="p-2 rounded-lg text-slate-300 hover:text-primary-500 hover:bg-primary-500/5 transition-all">
-                  <ExternalLink size={16} />
+                <button 
+                  onClick={() => handleReveal(file.path)}
+                  className="p-2 rounded-lg text-slate-300 hover:text-primary-500 hover:bg-primary-500/5 transition-all text-sm"
+                >
+                  <FolderOpen size={16} />
                 </button>
               </div>
             ))}
