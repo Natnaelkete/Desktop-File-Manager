@@ -9,10 +9,11 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   openPath: (path) => electron.ipcRenderer.invoke("open-path", path),
   searchFiles: (dirPath, query) => electron.ipcRenderer.invoke("search-files", dirPath, query),
   getFileHash: (filePath, algorithm) => electron.ipcRenderer.invoke("get-file-hash", filePath, algorithm),
-  getDirStats: (path) => electron.ipcRenderer.invoke("get-dir-stats", path),
+  getAdvancedStats: (path) => electron.ipcRenderer.invoke("get-advanced-stats", path),
   unzip: (filePath, targetDir) => electron.ipcRenderer.invoke("unzip", filePath, targetDir),
   batchRename: (paths, pattern, replacement) => electron.ipcRenderer.invoke("batch-rename", paths, pattern, replacement),
   readFile: (path) => electron.ipcRenderer.invoke("read-file", path),
   writeFile: (path, content) => electron.ipcRenderer.invoke("write-file", path, content),
   onMainMessage: (callback) => electron.ipcRenderer.on("main-process-message", (_event, value) => callback(value))
 });
+console.log("Preload script loaded with advanced stats support");

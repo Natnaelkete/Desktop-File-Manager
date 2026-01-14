@@ -1,6 +1,7 @@
 "use strict";
 const electron = require("electron");
 const node_url = require("node:url");
+const fs_native = require("node:fs");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const node_child_process = require("node:child_process");
@@ -35,7 +36,7 @@ function createWindow() {
     minHeight: 600,
     frame: false,
     webPreferences: {
-      preload: path.join(__dirname$1, "preload.js"),
+      preload: path.join(__dirname$1, "preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true
     },
@@ -201,45 +202,87 @@ electron.ipcMain.handle("get-file-hash", async (_event, filePath, algorithm) => 
     return { error: error.message };
   }
 });
-electron.ipcMain.handle("get-dir-stats", async (_event, dirPath) => {
+electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
   try {
-    const files = await fs.readdir(dirPath, { withFileTypes: true });
-    const getDirSize = async (d, depth = 0) => {
-      if (depth > 5) return 0;
-      let total = 0;
+    const categories = {
+      images: { size: 0, count: 0, exts: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"] },
+      videos: { size: 0, count: 0, exts: ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm"] },
+      audio: { size: 0, count: 0, exts: ["mp3", "wav", "flac", "aac", "ogg", "m4a"] },
+      docs: { size: 0, count: 0, exts: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md"] },
+      apps: { size: 0, count: 0, exts: ["exe", "msi", "appx", "dmg"] },
+      others: { size: 0, count: 0, exts: [] }
+    };
+    const largeFiles = [];
+    const recentFiles = [];
+    const redundantFiles = [];
+    const hashes = /* @__PURE__ */ new Map();
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1e3;
+    const scan = async (d, depth = 0) => {
+      if (depth > 8) return;
       try {
         const entries = await fs.readdir(d, { withFileTypes: true });
-        const sizes = await Promise.all(entries.map(async (entry) => {
-          const p = path.join(d, entry.name);
+        for (const entry of entries) {
+          const fullPath = path.join(d, entry.name);
           if (entry.isDirectory()) {
-            return await getDirSize(p, depth + 1);
+            await scan(fullPath, depth + 1);
           } else {
-            const s = await fs.stat(p);
-            return s.size;
+            try {
+              const s = await fs.stat(fullPath);
+              const ext = path.extname(entry.name).toLowerCase().slice(1);
+              let categorized = false;
+              const catKeys = Object.keys(categories);
+              for (const key of catKeys) {
+                const cat = categories[key];
+                if (cat.exts.includes(ext)) {
+                  cat.size += s.size;
+                  cat.count++;
+                  categorized = true;
+                  break;
+                }
+              }
+              if (!categorized) {
+                categories.others.size += s.size;
+                categories.others.count++;
+              }
+              const dupeKey = `${s.size}-${entry.name}`;
+              if (!hashes.has(dupeKey)) {
+                hashes.set(dupeKey, [fullPath]);
+              } else {
+                hashes.get(dupeKey).push(fullPath);
+              }
+              if (s.size > 100 * 1024 * 1024) {
+                largeFiles.push({ name: entry.name, path: fullPath, size: s.size });
+              }
+              if (now - s.mtime.getTime() < oneDay) {
+                recentFiles.push({ name: entry.name, path: fullPath, modifiedAt: s.mtime.getTime() });
+              }
+              if (ext === "tmp" || ext === "log" || ext === "cache" || s.size === 0) {
+                redundantFiles.push({ name: entry.name, path: fullPath, size: s.size });
+              }
+            } catch (e) {
+            }
           }
-        }));
-        total = sizes.reduce((acc, curr) => acc + curr, 0);
+        }
       } catch (e) {
       }
-      return total;
     };
-    const stats = await Promise.all(
-      files.map(async (file) => {
-        const fullPath = path.join(dirPath, file.name);
-        let size = 0;
-        try {
-          if (file.isDirectory()) {
-            size = await getDirSize(fullPath);
-          } else {
-            const s = await fs.stat(fullPath);
-            size = s.size;
-          }
-        } catch (e) {
-        }
-        return { name: file.name, size, isDirectory: file.isDirectory() };
-      })
-    );
-    return stats.filter((s) => s.size > 0).sort((a, b) => b.size - a.size);
+    await scan(dirPath);
+    const duplicateGroups = Array.from(hashes.values()).filter((paths) => paths.length > 1);
+    const duplicateCount = duplicateGroups.reduce((acc, curr) => acc + curr.length, 0);
+    const duplicateSize = duplicateGroups.reduce((acc, curr) => {
+      const stats = fs_native.statSync(curr[0]);
+      return acc + stats.size * (curr.length - 1);
+    }, 0);
+    return {
+      categories,
+      largeFiles: largeFiles.sort((a, b) => b.size - a.size).slice(0, 10),
+      recentFiles: recentFiles.sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 10),
+      redundantCount: redundantFiles.length,
+      redundantSize: redundantFiles.reduce((acc, curr) => acc + curr.size, 0),
+      duplicateCount,
+      duplicateSize
+    };
   } catch (error) {
     return { error: error.message };
   }

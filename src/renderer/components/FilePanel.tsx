@@ -184,19 +184,24 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
               <div className="w-8"></div>
             </div>
             <div className="flex-1">
-              <AutoSizer>
-                {({ height, width }: any) => (
-                  <List
-                    height={height as number}
-                    itemCount={tab.files.length}
-                    itemSize={44}
-                    width={width as number}
-                    className="scrollbar-thin"
-                  >
-                    {Row}
-                  </List>
-                )}
-              </AutoSizer>
+              {(() => {
+                const AutoSizerAny = AutoSizer as any
+                return (
+                  <AutoSizerAny>
+                    {({ height, width }: any) => (
+                      <List
+                        height={height as number}
+                        itemCount={tab.files.length}
+                        itemSize={44}
+                        width={width as number}
+                        className="scrollbar-thin"
+                      >
+                        {Row}
+                      </List>
+                    )}
+                  </AutoSizerAny>
+                )
+              })()}
             </div>
           </div>
         ) : (

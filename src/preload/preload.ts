@@ -9,10 +9,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openPath: (path: string) => ipcRenderer.invoke('open-path', path),
   searchFiles: (dirPath: string, query: string) => ipcRenderer.invoke('search-files', dirPath, query),
   getFileHash: (filePath: string, algorithm: string) => ipcRenderer.invoke('get-file-hash', filePath, algorithm),
-  getDirStats: (path: string) => ipcRenderer.invoke('get-dir-stats', path),
+  getAdvancedStats: (path: string) => ipcRenderer.invoke('get-advanced-stats', path),
   unzip: (filePath: string, targetDir: string) => ipcRenderer.invoke('unzip', filePath, targetDir),
   batchRename: (paths: string[], pattern: string, replacement: string) => ipcRenderer.invoke('batch-rename', paths, pattern, replacement),
   readFile: (path: string) => ipcRenderer.invoke('read-file', path),
   writeFile: (path: string, content: string) => ipcRenderer.invoke('write-file', path, content),
   onMainMessage: (callback: any) => ipcRenderer.on('main-process-message', (_event, value) => callback(value)),
 })
+
+console.log('Preload script loaded with advanced stats support')
