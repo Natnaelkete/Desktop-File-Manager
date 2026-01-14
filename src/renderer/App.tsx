@@ -63,7 +63,7 @@ const App: React.FC = () => {
             <div className="bg-primary-500 p-1.5 rounded-lg shadow-lg shadow-primary-500/20 cursor-pointer" onClick={() => setActiveView('explorer')}>
               <LayoutDashboard size={20} className="text-white" />
             </div>
-            <h1 className="font-bold text-lg tracking-tight">Antigravity<span className="text-primary-500 ml-0.5">Explorer</span></h1>
+            <h1 className="font-bold text-lg tracking-tight">Smart<span className="text-primary-500 ml-0.5">Explorer</span></h1>
           </div>
 
           <div className="mx-12 flex-1 max-w-xl no-drag">

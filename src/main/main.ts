@@ -4,8 +4,26 @@ import fs_native from 'node:fs'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { exec } from 'node:child_process'
+// @ts-ignore
+import regedit from 'regedit'
+
+// Set VBS location - crucial for Electron/Vite
+const vbsPath = path.join(process.cwd(), 'node_modules', 'regedit', 'vbs')
+regedit.setExternalVBSLocation(vbsPath)
+
+// Promisify regedit list
+const regList = (keys: string[]) => new Promise<any>((resolve, reject) => {
+  regedit.list(keys, (err: any, result: any) => {
+    if (err) reject(err)
+    else resolve(result)
+  })
+})
 import { promisify } from 'node:util'
 import crypto from 'node:crypto'
+
+const lastScanCache = {
+  duplicateGroups: [] as string[][]
+}
 ipcMain.handle('read-file', async (_event, filePath: string) => {
   try {
     return await fs.readFile(filePath, 'utf8')
@@ -299,6 +317,10 @@ ipcMain.handle('get-advanced-stats', async (_event, dirPath: string) => {
     await scan(dirPath)
 
     const duplicateGroups = Array.from(hashes.values()).filter(paths => paths.length > 1)
+    
+    // Cache for pagination
+    lastScanCache.duplicateGroups = duplicateGroups
+    
     const duplicateCount = duplicateGroups.reduce((acc, curr) => acc + curr.length, 0)
     const duplicateSize = duplicateGroups.reduce((acc, curr) => {
       const stats = fs_native.statSync(curr[0])
@@ -312,7 +334,7 @@ ipcMain.handle('get-advanced-stats', async (_event, dirPath: string) => {
       redundantFiles: redundantFiles.map(f => f.path),
       redundantCount: redundantFiles.length,
       redundantSize: redundantFiles.reduce((acc, curr) => acc + curr.size, 0),
-      duplicateGroups,
+      duplicateGroups: duplicateGroups.slice(0, 50), // Return only top 50 for preview
       duplicateCount,
       duplicateSize
     }
@@ -325,15 +347,211 @@ ipcMain.handle('reveal-in-explorer', (_event, filePath: string) => {
   shell.showItemInFolder(filePath)
 })
 
-ipcMain.handle('delete-files-bulk', async (_event, filePaths: string[]) => {
-  try {
-    for (const p of filePaths) {
-      await fs.unlink(p)
-    }
-    return { success: true }
-  } catch (error: any) {
-    return { error: error.message }
+ipcMain.handle('get-duplicates-paginated', (_event, page: number, pageSize: number) => {
+  const start = page * pageSize
+  const end = start + pageSize
+  return {
+    groups: lastScanCache.duplicateGroups.slice(start, end),
+    total: lastScanCache.duplicateGroups.length
   }
+})
+
+// Internal helper for scanning installed apps
+const getInstalledAppsInternal = async () => {
+  const keys = [
+    'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+    'HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+    'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall'
+  ]
+
+  const apps: any[] = []
+  try {
+    for (const key of keys) {
+      const rootsResult = await regList([key])
+      const subkeys = rootsResult[key]?.keys || []
+      const fullSubkeys = subkeys.map((sk: string) => `${key}\\${sk}`)
+      const chunkSize = 40 
+      const chunks = []
+      for (let i = 0; i < fullSubkeys.length; i += chunkSize) {
+        chunks.push(fullSubkeys.slice(i, i + chunkSize))
+      }
+      
+      const chunkResults = await Promise.all(chunks.map(async (chunk) => {
+        try {
+          const details = await regList(chunk)
+          const chunkApps: any[] = []
+          for (const sk of chunk) {
+            const data = details[sk]?.values
+            if (data && (data.DisplayName || data.UninstallString)) {
+              chunkApps.push({
+                name: data.DisplayName?.value || sk.split('\\').pop(),
+                version: data.DisplayVersion?.value || 'Unknown',
+                publisher: data.Publisher?.value || 'Unknown',
+                uninstallString: data.UninstallString?.value || data.QuietUninstallString?.value,
+                installLocation: data.InstallLocation?.value,
+                icon: data.DisplayIcon?.value,
+                size: data.EstimatedSize?.value ? data.EstimatedSize.value * 1024 : 0, 
+                installDate: data.InstallDate?.value,
+                registryPath: sk
+              })
+            }
+          }
+          return chunkApps
+        } catch (e) { return [] }
+      }))
+      for (const chunkApps of chunkResults) apps.push(...chunkApps)
+    }
+    return apps.sort((a, b) => a.name.localeCompare(b.name))
+  } catch (e) {
+    return []
+  }
+}
+
+ipcMain.handle('get-installed-apps', async () => {
+  return await getInstalledAppsInternal()
+})
+
+ipcMain.handle('run-uninstaller', async (_event, uninstallString: string) => {
+  return new Promise((resolve) => {
+    // We use exec because uninstall strings often contain quotes and arguments
+    exec(uninstallString, (error) => {
+      if (error) resolve({ error: error.message })
+      else resolve({ success: true })
+    })
+  })
+})
+
+// Helper for finding leftovers
+const findLeftoversInternal = async (appName: string, installLocation?: string) => {
+  const leftovers: { files: string[], registry: string[] } = { files: [], registry: [] }
+  
+  const searchDirs = [
+    process.env.APPDATA,
+    process.env.LOCALAPPDATA,
+    'C:\\Program Files',
+    'C:\\Program Files (x86)'
+  ].filter(Boolean) as string[]
+
+  for (const dir of searchDirs) {
+    try {
+      const entries = await fs.readdir(dir)
+      const matches = entries.filter(e => e.toLowerCase().includes(appName.toLowerCase()))
+      for (const match of matches) {
+        leftovers.files.push(path.join(dir, match))
+      }
+    } catch (e) {}
+  }
+
+  if (installLocation && fs_native.existsSync(installLocation)) {
+    leftovers.files.push(installLocation)
+  }
+
+  const regKeys = [
+    `HKCU\\Software\\${appName}`,
+    `HKLM\\Software\\${appName}`,
+    `HKLM\\Software\\WOW6432Node\\${appName}`
+  ]
+
+  for (const rk of regKeys) {
+    try {
+      const res = await regList([rk])
+      if (res[rk]?.exists) {
+        leftovers.registry.push(rk)
+      }
+    } catch (e) {}
+  }
+
+  return leftovers
+}
+
+ipcMain.handle('find-app-leftovers', async (_event, appName: string, installLocation?: string) => {
+  return await findLeftoversInternal(appName, installLocation)
+})
+
+ipcMain.handle('find-orphan-leftovers', async () => {
+  const leftovers: { name: string, path: string, size: number }[] = []
+  try {
+    const apps = await getInstalledAppsInternal()
+    const installedLocations = new Set(apps.map(a => a.installLocation?.toLowerCase()).filter(Boolean))
+    const installedNames = new Set(apps.map(a => a.name.toLowerCase()))
+
+    const searchDirs = [
+      'C:\\Program Files',
+      'C:\\Program Files (x86)',
+      process.env.APPDATA,
+      process.env.LOCALAPPDATA
+    ].filter(Boolean) as string[]
+
+    for (const dir of searchDirs) {
+      try {
+        const entries = await fs.readdir(dir)
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry)
+          const entryLower = entry.toLowerCase()
+          
+          // Simple heuristic: If folder name doesn't match any installed app name
+          // and its path isn't a known install location, it's a potential orphan.
+          // We exclude common system folders.
+          const commonDirs = ['microsoft', 'windows', 'common files', 'desktop', 'temp']
+          if (commonDirs.includes(entryLower)) continue
+
+          let isKnown = false
+          if (installedLocations.has(fullPath.toLowerCase())) isKnown = true
+          if (installedNames.has(entryLower)) isKnown = true
+          
+          if (!isKnown) {
+            const stats = await fs.stat(fullPath)
+            if (stats.isDirectory()) {
+              leftovers.push({ name: entry, path: fullPath, size: 0 }) // Size calculation is expensive, skip for overview
+            }
+          }
+        }
+      } catch (e) {}
+    }
+    return leftovers.slice(0, 100)
+  } catch (e) {
+    return { error: 'Orphan scan failed' }
+  }
+})
+
+ipcMain.handle('get-uwp-apps', async () => {
+  return new Promise((resolve) => {
+    // Get non-system packages that have an InstallLocation
+    const psCommand = 'Get-AppxPackage | Where-Object { $_.InstallLocation -ne $null } | Select-Object Name, PackageFullName, Version, Publisher, InstallLocation | ConvertTo-Json'
+    exec(`powershell -Command "${psCommand}"`, (error, stdout) => {
+      if (error) {
+        resolve({ error: error.message })
+        return
+      }
+      try {
+        const apps = JSON.parse(stdout)
+        const appsArray = Array.isArray(apps) ? apps : [apps]
+        resolve(appsArray.map((app: any) => ({
+          name: app.Name,
+          fullName: app.PackageFullName,
+          version: app.Version,
+          publisher: app.Publisher,
+          installLocation: app.InstallLocation,
+          isUWP: true
+        })))
+      } catch (e: any) {
+        resolve({ error: 'Failed to parse UWP apps: ' + e.message })
+      }
+    })
+  })
+})
+
+ipcMain.handle('uninstall-uwp-app', async (_event, packageFullName: string) => {
+  return new Promise((resolve) => {
+    exec(`powershell -Command "Remove-AppxPackage -Package ${packageFullName}"`, (error) => {
+      if (error) resolve({ error: error.message })
+      else resolve({ success: true })
+    })
+  })
+})
+
+ipcMain.handle('force-uninstall', async (_event, appName: string, installLocation?: string) => {
+  return await findLeftoversInternal(appName, installLocation)
 })
 
 ipcMain.handle('batch-rename', async (_event, paths: string[], pattern: string, replacement: string) => {

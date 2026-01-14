@@ -29,6 +29,7 @@
     "react-virtualized-auto-sizer": "^2.0.2",
     "react-window": "^1.8.11",
     "recharts": "^3.6.0",
+    "regedit": "^5.1.4",
     "sharp": "^0.32.6",
     "tailwind-merge": "^2.0.0",
     "zustand": "^4.4.6"

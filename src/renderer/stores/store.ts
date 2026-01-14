@@ -30,12 +30,20 @@ interface AppState {
   searchQuery: string
   activeView: 'explorer' | 'analyzer' | 'apps' | 'network'
   
+  // Persistence for App Manager
+  installedApps: any[]
+  uwpApps: any[]
+  orphans: any[]
+  
   // Actions
   setTheme: (theme: 'light' | 'dark') => void
   setViewMode: (mode: 'list' | 'grid') => void
   setSelection: (paths: string[]) => void
   setSearchQuery: (query: string) => void
   setActiveView: (view: 'explorer' | 'analyzer' | 'apps' | 'network') => void
+  setInstalledApps: (apps: any[]) => void
+  setUwpApps: (apps: any[]) => void
+  setOrphans: (orphans: any[]) => void
   addTab: (side: 'left' | 'right', path: string) => void
   closeTab: (side: 'left' | 'right', id: string) => void
   setActiveTab: (side: 'left' | 'right', id: string) => void
@@ -53,12 +61,18 @@ export const useStore = create<AppState>((set) => ({
   selection: [],
   searchQuery: '',
   activeView: 'explorer',
+  installedApps: [],
+  uwpApps: [],
+  orphans: [],
 
   setTheme: (theme) => set({ theme }),
   setViewMode: (mode) => set({ viewMode: mode }),
   setSelection: (paths) => set({ selection: paths }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setActiveView: (view) => set({ activeView: view }),
+  setInstalledApps: (installedApps) => set({ installedApps }),
+  setUwpApps: (uwpApps) => set({ uwpApps }),
+  setOrphans: (orphans) => set({ orphans }),
 
   addTab: (side, path) => set((state) => {
     const id = `${side[0]}${Date.now()}`

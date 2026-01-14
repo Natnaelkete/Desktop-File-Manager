@@ -20,6 +20,9 @@ import {
 } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts'
 import { clsx } from 'clsx'
+import { FixedSizeList as List } from 'react-window'
+// @ts-ignore
+import { AutoSizer } from 'react-virtualized-auto-sizer'
 
 interface DiskAnalyzerProps {
   path: string
@@ -33,6 +36,12 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'dashboard' | 'duplicates'>('dashboard')
   const [cleaning, setCleaning] = useState(false)
+  
+  // Pagination & Virtualization state
+  const [paginatedDuplicates, setPaginatedDuplicates] = useState<string[][]>([])
+  const [page, setPage] = useState(0)
+  const [totalGroups, setTotalGroups] = useState(0)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   const fetchStats = async () => {
     setLoading(true)
@@ -43,9 +52,34 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
     setLoading(false)
   }
 
+  const fetchDuplicates = async (reset = false) => {
+    const currentPage = reset ? 0 : page
+    setLoadingMore(true)
+    try {
+      const result = await (window as any).electronAPI.getDuplicatesPaginated(currentPage, 30)
+      if (result.groups) {
+        if (reset) {
+          setPaginatedDuplicates(result.groups)
+          setPage(1)
+        } else {
+          setPaginatedDuplicates(prev => [...prev, ...result.groups])
+          setPage(currentPage + 1)
+        }
+        setTotalGroups(result.total)
+      }
+    } catch (e) {}
+    setLoadingMore(false)
+  }
+
   useEffect(() => {
     fetchStats()
   }, [path])
+
+  useEffect(() => {
+    if (view === 'duplicates' && paginatedDuplicates.length === 0) {
+      fetchDuplicates(true)
+    }
+  }, [view])
 
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B'
@@ -70,6 +104,45 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
     }
   }
 
+  // Duplicated Group Row Component for react-window
+  const GroupRow = ({ index, style }: { index: number, style: React.CSSProperties }) => {
+    const group = paginatedDuplicates[index]
+    if (!group) return null
+
+    return (
+      <div style={style} className="px-6 pb-4">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-100 dark:border-slate-800 shadow-sm h-full flex flex-col">
+          <div className="flex items-center justify-between mb-3 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-full bg-rose-500/10 flex items-center justify-center text-rose-500 font-bold text-[10px] shrink-0">
+                {index + 1}
+              </div>
+              <h3 className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
+                {group[0].split('\\').pop() || group[0].split('/').pop()}
+              </h3>
+            </div>
+            <span className="text-[9px] font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full shrink-0">
+               {group.length} copies
+            </span>
+          </div>
+          <div className="flex-1 overflow-y-auto scrollbar-thin border-l-2 border-slate-50 dark:border-slate-800/50 ml-3.5 pl-3.5">
+            {group.map((p: string, pIdx: number) => (
+              <div key={pIdx} className="flex items-center justify-between group py-1 border-b border-slate-50 dark:border-slate-800/20 last:border-0 font-mono">
+                <span className="text-[10px] text-slate-500 truncate" title={p}>{p}</span>
+                <button 
+                  onClick={() => handleReveal(p)}
+                  className="p-1 rounded-md text-slate-300 hover:text-primary-500 hover:bg-primary-500/10 transition-all opacity-0 group-hover:opacity-100 shrink-0"
+                >
+                  <FolderOpen size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (loading && !cleaning) {
     return (
       <div className="h-full flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950">
@@ -87,7 +160,7 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
     value: cat.size
   })).filter(c => c.value > 0)
 
-  // Duplicates List View
+  // Duplicates List View (Virtualized)
   if (view === 'duplicates') {
     return (
       <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-950">
@@ -103,46 +176,39 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
               <Copy size={16} className="text-rose-500" />
               Duplicate Groups
             </h2>
-            <span className="text-[10px] text-slate-400 font-mono tracking-tight">{data.duplicateCount} files matched</span>
+            <span className="text-[10px] text-slate-400 font-mono tracking-tight">{totalGroups} sets found | {paginatedDuplicates.length} loaded</span>
           </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin">
-          {data.duplicateGroups.map((group: string[], idx: number) => (
-            <div key={idx} className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-rose-500/10 flex items-center justify-center text-rose-500 font-bold text-xs">
-                    {idx + 1}
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate max-w-[400px]">
-                    {group[0].split('\\').pop() || group[0].split('/').pop()}
-                  </h3>
-                </div>
-                <span className="text-[11px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
-                   {group.length} occurrences
-                </span>
-              </div>
-              <div className="space-y-2 border-l-2 border-slate-100 dark:border-slate-800 ml-4 pl-4">
-                {group.map((p, pIdx) => (
-                  <div key={pIdx} className="flex items-center justify-between group py-1">
-                    <span className="text-[11px] text-slate-500 truncate max-w-[500px] font-mono">{p}</span>
-                    <button 
-                      onClick={() => handleReveal(p)}
-                      className="p-1.5 rounded-lg text-slate-300 hover:text-primary-500 hover:bg-primary-500/10 transition-all opacity-0 group-hover:opacity-100"
-                    >
-                      <FolderOpen size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-          {data.duplicateGroups.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-50 space-y-4">
-              <Copy size={64} />
-              <p className="text-lg font-medium">No identical files found</p>
+          {loadingMore && (
+            <div className="ml-auto flex items-center gap-2 text-[10px] font-bold text-slate-400 animate-pulse">
+              <Loader2 size={12} className="animate-spin" /> Fetching more...
             </div>
           )}
+        </div>
+        <div className="flex-1 min-h-0 bg-slate-50 dark:bg-slate-950 pt-6">
+          <AutoSizer>
+            {({ height, width }: { height: number, width: number }) => {
+              if (height === 0 || width === 0) return (
+                <div className="h-full flex items-center justify-center text-slate-400 text-xs italic">
+                  Waiting for layout... ({height}x{width})
+                </div>
+              )
+              return (
+                <List
+                  height={height}
+                  itemCount={paginatedDuplicates.length}
+                  itemSize={220}
+                  width={width}
+                  onItemsRendered={({ visibleStopIndex }: { visibleStopIndex: number }) => {
+                    if (visibleStopIndex >= paginatedDuplicates.length - 5 && !loadingMore && paginatedDuplicates.length < totalGroups) {
+                      fetchDuplicates()
+                    }
+                  }}
+                >
+                  {GroupRow}
+                </List>
+              )
+            }}
+          </AutoSizer>
         </div>
       </div>
     )
@@ -198,7 +264,7 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
                     paddingAngle={5}
                     dataKey="value"
                   >
-                    {chartData.map((entry, index) => (
+                    {chartData.map((entry: any, index: number) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
