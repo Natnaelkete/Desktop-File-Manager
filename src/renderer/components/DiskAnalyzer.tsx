@@ -72,7 +72,7 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-50 dark:bg-slate-950 overflow-hidden">
+    <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-950 overflow-hidden">
       <div className="h-14 flex items-center px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm z-10">
         <button 
           onClick={onClose}
@@ -84,37 +84,40 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
         <span className="ml-4 text-sm text-slate-500 truncate">{path}</span>
       </div>
 
-      <div className="flex-1 p-6 relative">
+      <div className="flex-1 relative min-h-0">
         {loading ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm z-20">
             <Loader2 className="animate-spin text-primary-500 mb-4" size={48} />
             <p className="text-sm font-medium text-slate-500">Scanning directory structure...</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <Treemap
-              data={data}
-              dataKey="size"
-              stroke="#fff"
-              fill="#8884d8"
-              content={<CustomizedContent />}
-            >
-              <Tooltip 
-                content={({ active, payload }: any) => {
-                  if (active && payload && payload.length) {
-                    const data = payload[0].payload
-                    return (
-                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-lg shadow-xl glass">
-                        <p className="font-bold text-slate-800 dark:text-slate-100">{data.name}</p>
-                        <p className="text-sm text-primary-500 font-medium">{formatSize(data.value)}</p>
-                      </div>
-                    )
-                  }
-                  return null
-                }}
-              />
-            </Treemap>
-          </ResponsiveContainer>
+          <div className="absolute inset-0 p-6">
+            <ResponsiveContainer width="100%" height="100%">
+              <Treemap
+                data={data}
+                dataKey="size"
+                stroke="#fff"
+                fill="#8884d8"
+                content={<CustomizedContent />}
+                isAnimationActive={false}
+              >
+                <Tooltip 
+                  content={({ active, payload }: any) => {
+                    if (active && payload && payload.length) {
+                      const data = payload[0].payload
+                      return (
+                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-lg shadow-xl glass">
+                          <p className="font-bold text-slate-800 dark:text-slate-100">{data.name}</p>
+                          <p className="text-sm text-primary-500 font-medium">{formatSize(data.value)}</p>
+                        </div>
+                      )
+                    }
+                    return null
+                  }}
+                />
+              </Treemap>
+            </ResponsiveContainer>
+          </div>
         )}
       </div>
     </div>

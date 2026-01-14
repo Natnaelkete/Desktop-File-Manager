@@ -204,40 +204,42 @@ electron.ipcMain.handle("get-file-hash", async (_event, filePath, algorithm) => 
 electron.ipcMain.handle("get-dir-stats", async (_event, dirPath) => {
   try {
     const files = await fs.readdir(dirPath, { withFileTypes: true });
+    const getDirSize = async (d, depth = 0) => {
+      if (depth > 5) return 0;
+      let total = 0;
+      try {
+        const entries = await fs.readdir(d, { withFileTypes: true });
+        const sizes = await Promise.all(entries.map(async (entry) => {
+          const p = path.join(d, entry.name);
+          if (entry.isDirectory()) {
+            return await getDirSize(p, depth + 1);
+          } else {
+            const s = await fs.stat(p);
+            return s.size;
+          }
+        }));
+        total = sizes.reduce((acc, curr) => acc + curr, 0);
+      } catch (e) {
+      }
+      return total;
+    };
     const stats = await Promise.all(
       files.map(async (file) => {
         const fullPath = path.join(dirPath, file.name);
         let size = 0;
-        if (file.isDirectory()) {
-          const getDirSize = async (d) => {
-            let total = 0;
-            try {
-              const entries = await fs.readdir(d, { withFileTypes: true });
-              for (const entry of entries) {
-                const p = path.join(d, entry.name);
-                if (entry.isDirectory()) {
-                  total += await getDirSize(p);
-                } else {
-                  const s = await fs.stat(p);
-                  total += s.size;
-                }
-              }
-            } catch (e) {
-            }
-            return total;
-          };
-          size = await getDirSize(fullPath);
-        } else {
-          try {
+        try {
+          if (file.isDirectory()) {
+            size = await getDirSize(fullPath);
+          } else {
             const s = await fs.stat(fullPath);
             size = s.size;
-          } catch (e) {
           }
+        } catch (e) {
         }
         return { name: file.name, size, isDirectory: file.isDirectory() };
       })
     );
-    return stats.sort((a, b) => b.size - a.size);
+    return stats.filter((s) => s.size > 0).sort((a, b) => b.size - a.size);
   } catch (error) {
     return { error: error.message };
   }

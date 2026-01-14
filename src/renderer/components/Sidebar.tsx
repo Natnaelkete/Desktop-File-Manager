@@ -57,9 +57,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer }) => {
   ]
 
   const library = [
-    { label: 'Images', path: 'images', icon: ImageIcon },
-    { label: 'Videos', path: 'videos', icon: Film },
-    { label: 'Music', path: 'music', icon: Music },
+    { label: 'Images', path: 'C:\\Users\\use\\Pictures', icon: ImageIcon },
+    { label: 'Videos', path: 'C:\\Users\\use\\Videos', icon: Film },
+    { label: 'Music', path: 'C:\\Users\\use\\Music', icon: Music },
   ]
 
   const handleItemClick = (item: any) => {
@@ -84,14 +84,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer }) => {
             {drives.map((drive) => (
               <div 
                 key={drive.name}
+                className={clsx(
+                  "flex items-center gap-3 p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer transition-colors group relative",
+                  activeView === 'explorer' && activeLeftTabId === 'l1' && drives[0]?.path === drive.path && "bg-slate-200 dark:bg-slate-800"
+                )}
                 onClick={() => {
                   setActiveView('explorer')
                   navigateTo('left', activeLeftTabId, drive.path)
                 }}
-                className={clsx(
-                  "flex items-center gap-3 p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer transition-colors group",
-                  activeView === 'explorer' && activeLeftTabId === 'l1' && drives[0]?.path === drive.path && "bg-slate-200 dark:bg-slate-800"
-                )}
               >
                 <HardDrive size={18} className="text-primary-500" />
                 <div className="flex-1 min-w-0">
@@ -103,6 +103,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer }) => {
                     />
                   </div>
                 </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpenAnalyzer(drive.path)
+                  }}
+                  title="Analyze partition"
+                  className="p-1.5 rounded-md hover:bg-primary-500 hover:text-white text-slate-400 opacity-0 group-hover:opacity-100 transition-all ml-1"
+                >
+                  <PieChart size={14} />
+                </button>
               </div>
             ))}
           </div>
