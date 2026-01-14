@@ -6,6 +6,8 @@ import { clsx } from 'clsx'
 import TabBar from './TabBar'
 import ContextMenu from './ContextMenu'
 import BatchRenameDialog from './BatchRenameDialog'
+import { FixedSizeList as List } from 'react-window'
+import { AutoSizer } from 'react-virtualized-auto-sizer'
 
 interface FilePanelProps {
   side: 'left' | 'right'
@@ -72,7 +74,6 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     } else {
       const ext = file.name.split('.').pop()?.toLowerCase()
       const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']
-      
       const textExts = ['txt', 'md', 'json', 'js', 'ts', 'tsx', 'css', 'html', 'py', 'java', 'c', 'cpp', 'sh']
       
       if (imageExts.includes(ext || '')) {
@@ -90,18 +91,46 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     }
   }
 
-  const handleBreadcrumbClick = (index: number) => {
-    const parts = tab.path.split('\\').filter(Boolean)
-    const newPath = parts.slice(0, index + 1).join('\\') + (parts.length > 0 ? '\\' : '')
-    navigateTo(side, activeTabId, newPath)
-  }
-
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B'
     const k = 1024
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
     const i = Math.floor(Math.log(bytes) / Math.log(k))
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  const Row = ({ index, style }: { index: number, style: React.CSSProperties }) => {
+    const file = tab.files[index]
+    if (!file) return null
+    return (
+      <div 
+        style={style}
+        onClick={(e) => handleFileClick(file, e)}
+        onDoubleClick={() => handleDoubleClick(file)}
+        className={clsx(
+          "flex items-center hover:bg-primary-50 dark:hover:bg-primary-900/10 cursor-default group border-b border-slate-50 dark:border-slate-800/50 px-4",
+          selection.includes(file.path) && "bg-primary-100/50 dark:bg-primary-900/20"
+        )}
+      >
+        <div className="flex-[3] flex items-center gap-3 min-w-0">
+          {file.isDirectory ? (
+            <Folder size={18} className="text-amber-500 fill-amber-500/20 flex-shrink-0" />
+          ) : (
+            <File size={18} className="text-slate-400 flex-shrink-0" />
+          )}
+          <span className="truncate text-sm">{file.name}</span>
+        </div>
+        <div className="flex-1 text-xs text-slate-500 overflow-hidden whitespace-nowrap">
+          {file.isDirectory ? '--' : formatSize(file.size)}
+        </div>
+        <div className="flex-1 text-xs text-slate-500 overflow-hidden whitespace-nowrap">
+          {new Date(file.modifiedAt).toLocaleDateString()}
+        </div>
+        <div className="w-8 text-right flex-shrink-0">
+          <MoreVertical size={16} className="text-slate-300 group-hover:text-slate-500 cursor-pointer opacity-0 group-hover:opacity-100" />
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -117,7 +146,11 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
           {tab.path.split('\\').filter(Boolean).map((part: string, i: number, arr: string[]) => (
             <React.Fragment key={i}>
               <span 
-                onClick={() => handleBreadcrumbClick(i)}
+                onClick={() => {
+                  const parts = tab.path.split('\\').filter(Boolean)
+                  const newPath = parts.slice(0, i + 1).join('\\') + (parts.length > 0 ? '\\' : '')
+                  navigateTo(side, activeTabId, newPath)
+                }}
                 className="hover:text-primary-500 cursor-pointer"
               >
                 {part}
@@ -141,73 +174,57 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       </div>
 
       {/* File Content */}
-      <div className="flex-1 overflow-y-auto no-drag">
+      <div className="flex-1 overflow-hidden no-drag bg-slate-50/50 dark:bg-slate-900/50">
         {viewMode === 'list' ? (
-          <table className="w-full text-left border-collapse">
-            <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 z-10 shadow-sm font-medium">
-              <tr className="text-xs font-semibold text-slate-500 uppercase">
-                <th className="p-3 pl-4">Name</th>
-                <th className="p-3">Size</th>
-                <th className="p-3">Modified</th>
-                <th className="p-3 w-10"></th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
+          <div className="h-full flex flex-col">
+            <div className="flex bg-slate-100 dark:bg-slate-800 font-bold text-[10px] text-slate-500 uppercase py-3 px-4 shadow-sm">
+              <div className="flex-[3]">Name</div>
+              <div className="flex-1">Size</div>
+              <div className="flex-1">Modified</div>
+              <div className="w-8"></div>
+            </div>
+            <div className="flex-1">
+              <AutoSizer>
+                {({ height, width }: any) => (
+                  <List
+                    height={height as number}
+                    itemCount={tab.files.length}
+                    itemSize={44}
+                    width={width as number}
+                    className="scrollbar-thin"
+                  >
+                    {Row}
+                  </List>
+                )}
+              </AutoSizer>
+            </div>
+          </div>
+        ) : (
+          <div className="h-full overflow-y-auto p-4 scrollbar-thin">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-2">
               {tab.files.map((file: FileItem) => (
-                <tr 
+                <div
                   key={file.path}
                   onClick={(e) => handleFileClick(file, e)}
                   onDoubleClick={() => handleDoubleClick(file)}
                   className={clsx(
-                    "hover:bg-primary-50 dark:hover:bg-primary-900/10 cursor-default group border-b border-slate-50 dark:border-slate-800/50",
-                    selection.includes(file.path) && "bg-primary-100/50 dark:bg-primary-900/20"
+                    "flex flex-col items-center p-3 rounded-xl hover:bg-primary-50 dark:hover:bg-primary-900/10 cursor-default group transition-all text-center",
+                    selection.includes(file.path) && "bg-primary-100 dark:bg-primary-900/30 ring-1 ring-primary-500"
                   )}
                 >
-                  <td className="p-2 pl-4 flex items-center gap-3">
-                    {file.isDirectory ? (
-                      <Folder size={18} className="text-amber-500 fill-amber-500/20" />
-                    ) : (
-                      <File size={18} className="text-slate-400" />
-                    )}
-                    <span className="truncate max-w-[200px]">{file.name}</span>
-                  </td>
-                  <td className="p-2 text-slate-500">
-                    {file.isDirectory ? '--' : formatSize(file.size)}
-                  </td>
-                  <td className="p-2 text-slate-500">
-                    {new Date(file.modifiedAt).toLocaleDateString()}
-                  </td>
-                  <td className="p-2 text-right">
-                    <MoreVertical size={16} className="text-slate-300 group-hover:text-slate-500 cursor-pointer opacity-0 group-hover:opacity-100" />
-                  </td>
-                </tr>
+                  {file.isDirectory ? (
+                    <Folder size={48} className="text-amber-500 fill-amber-500/10 mb-2" />
+                  ) : (
+                    <File size={48} className="text-slate-400 mb-2" />
+                  )}
+                  <span className="text-xs font-medium truncate w-full px-1">{file.name}</span>
+                </div>
               ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-2 p-4">
-            {tab.files.map((file: FileItem) => (
-              <div
-                key={file.path}
-                onClick={(e) => handleFileClick(file, e)}
-                onDoubleClick={() => handleDoubleClick(file)}
-                className={clsx(
-                  "flex flex-col items-center p-3 rounded-lg hover:bg-primary-50 dark:hover:bg-primary-900/10 cursor-default group transition-colors text-center",
-                  selection.includes(file.path) && "bg-primary-100 dark:bg-primary-900/30"
-                )}
-              >
-                {file.isDirectory ? (
-                  <Folder size={48} className="text-amber-500 fill-amber-500/10 mb-2" />
-                ) : (
-                  <File size={48} className="text-slate-400 mb-2" />
-                )}
-                <span className="text-xs font-medium truncate w-full px-1">{file.name}</span>
-              </div>
-            ))}
+            </div>
           </div>
         )}
         {tab.files.length === 0 && !tab.loading && (
-          <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+          <div className="flex flex-col items-center justify-center h-full text-slate-400">
             <Folder size={48} strokeWidth={1} className="mb-2 opacity-20" />
             <p className="text-sm">This folder is empty</p>
           </div>

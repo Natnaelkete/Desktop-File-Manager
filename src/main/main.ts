@@ -49,10 +49,13 @@ function createWindow() {
     }
   })
 
-  if (process.env.VITE_DEV_SERVER_URL) {
-    win.loadURL(process.env.VITE_DEV_SERVER_URL)
-  } else if (process.env.DIST) {
+    if (process.env.VITE_DEV_SERVER_URL) {
+      win.loadURL(process.env.VITE_DEV_SERVER_URL)
+      win.webContents.openDevTools()
+    } else {
+if (process.env.DIST) {
     win.loadFile(path.join(process.env.DIST, 'index.html'))
+    }
   }
 }
 

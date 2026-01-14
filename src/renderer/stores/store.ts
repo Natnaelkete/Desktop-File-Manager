@@ -28,17 +28,19 @@ interface AppState {
   viewMode: 'list' | 'grid'
   selection: string[]
   searchQuery: string
+  activeView: 'explorer' | 'analyzer' | 'apps' | 'network'
   
   // Actions
   setTheme: (theme: 'light' | 'dark') => void
+  setViewMode: (mode: 'list' | 'grid') => void
+  setSelection: (paths: string[]) => void
+  setSearchQuery: (query: string) => void
+  setActiveView: (view: 'explorer' | 'analyzer' | 'apps' | 'network') => void
   addTab: (side: 'left' | 'right', path: string) => void
   closeTab: (side: 'left' | 'right', id: string) => void
   setActiveTab: (side: 'left' | 'right', id: string) => void
   updateTabFiles: (side: 'left' | 'right', id: string, files: FileItem[]) => void
   navigateTo: (side: 'left' | 'right', id: string, path: string) => void
-  setViewMode: (mode: 'list' | 'grid') => void
-  setSelection: (paths: string[]) => void
-  setSearchQuery: (query: string) => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -47,14 +49,16 @@ export const useStore = create<AppState>((set) => ({
   activeLeftTabId: 'l1',
   activeRightTabId: 'r1',
   theme: 'dark',
-  viewMode: 'list', // 'list' | 'grid'
+  viewMode: 'list',
   selection: [],
   searchQuery: '',
+  activeView: 'explorer',
 
   setTheme: (theme) => set({ theme }),
   setViewMode: (mode) => set({ viewMode: mode }),
   setSelection: (paths) => set({ selection: paths }),
   setSearchQuery: (query) => set({ searchQuery: query }),
+  setActiveView: (view) => set({ activeView: view }),
 
   addTab: (side, path) => set((state) => {
     const id = `${side[0]}${Date.now()}`
@@ -68,7 +72,7 @@ export const useStore = create<AppState>((set) => ({
     const tabsKey = side === 'left' ? 'leftTabs' : 'rightTabs'
     const activeKey = side === 'left' ? 'activeLeftTabId' : 'activeRightTabId'
     const newTabs = state[tabsKey].filter(t => t.id !== id)
-    if (newTabs.length === 0) return {} // Prevent closing last tab
+    if (newTabs.length === 0) return {} 
     
     let newActiveId = state[activeKey]
     if (newActiveId === id) {

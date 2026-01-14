@@ -5,6 +5,8 @@ import FilePanel from './components/FilePanel'
 import DiskAnalyzer from './components/DiskAnalyzer'
 import ImageViewer from './components/ImageViewer'
 import TextEditor from './components/TextEditor'
+import AppManager from './components/AppManager'
+import NetworkPanel from './components/NetworkPanel'
 import { useStore } from './stores/store'
 import { 
   Search, 
@@ -15,14 +17,29 @@ import {
   Bell
 } from 'lucide-react'
 import { clsx } from 'clsx'
+import hotkeys from 'hotkeys-js'
 
 const App: React.FC = () => {
-  const { theme, setTheme, searchQuery, setSearchQuery } = useStore()
+  console.log('App Component Rendering')
+  const { theme, setTheme, searchQuery, setSearchQuery, activeView, setActiveView } = useStore()
   const [analyzerPath, setAnalyzerPath] = useState<string | null>(null)
   const [previewImage, setPreviewImage] = useState<any>(null)
   const [editingFile, setEditingFile] = useState<any>(null)
 
   useEffect(() => {
+    hotkeys('ctrl+t', (e) => {
+      e.preventDefault()
+      setTheme(useStore.getState().theme === 'dark' ? 'light' : 'dark')
+    })
+    hotkeys('ctrl+f', (e) => {
+      e.preventDefault()
+      document.querySelector('input')?.focus()
+    })
+    hotkeys('ctrl+1', () => setActiveView('explorer'))
+    hotkeys('ctrl+2', () => setActiveView('analyzer'))
+    hotkeys('ctrl+3', () => setActiveView('apps'))
+    hotkeys('ctrl+4', () => setActiveView('network'))
+    
     const handleOpenImage = (e: any) => setPreviewImage(e.detail)
     const handleOpenText = (e: any) => setEditingFile(e.detail)
     
@@ -30,6 +47,7 @@ const App: React.FC = () => {
     window.addEventListener('open-text', handleOpenText)
     
     return () => {
+      hotkeys.unbind('ctrl+t,ctrl+f,ctrl+1,ctrl+2,ctrl+3,ctrl+4')
       window.removeEventListener('open-image', handleOpenImage)
       window.removeEventListener('open-text', handleOpenText)
     }
@@ -42,7 +60,7 @@ const App: React.FC = () => {
         {/* Custom Title Bar / Header */}
         <header className="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center px-4 fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md drag">
           <div className="flex items-center gap-3 no-drag">
-            <div className="bg-primary-500 p-1.5 rounded-lg shadow-lg shadow-primary-500/20">
+            <div className="bg-primary-500 p-1.5 rounded-lg shadow-lg shadow-primary-500/20 cursor-pointer" onClick={() => setActiveView('explorer')}>
               <LayoutDashboard size={20} className="text-white" />
             </div>
             <h1 className="font-bold text-lg tracking-tight">Antigravity<span className="text-primary-500 ml-0.5">Explorer</span></h1>
@@ -79,22 +97,53 @@ const App: React.FC = () => {
         </header>
 
         <div className="flex-1 flex mt-14 overflow-hidden">
-          <Sidebar onOpenAnalyzer={(path) => setAnalyzerPath(path)} />
+          <Sidebar onOpenAnalyzer={(path) => { setAnalyzerPath(path); setActiveView('analyzer'); }} />
           
           <main className="flex-1 flex min-w-0 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 relative">
-            <FilePanel side="left" />
-            <FilePanel side="right" />
-
-            <AnimatePresence>
-              {analyzerPath && (
+            <AnimatePresence mode="wait">
+              {activeView === 'explorer' && (
                 <motion.div 
+                  key="explorer"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex-1 flex min-w-0"
+                >
+                  <FilePanel side="left" />
+                  <FilePanel side="right" />
+                </motion.div>
+              )}
+              {activeView === 'analyzer' && analyzerPath && (
+                <motion.div 
+                  key="analyzer"
                   initial={{ x: '100%' }}
                   animate={{ x: 0 }}
                   exit={{ x: '100%' }}
-                  transition={{ type: 'spring', damping: 25, stiffness: 200 }}
                   className="absolute inset-0 z-40 bg-white dark:bg-slate-950"
                 >
-                  <DiskAnalyzer path={analyzerPath} onClose={() => setAnalyzerPath(null)} />
+                  <DiskAnalyzer path={analyzerPath} onClose={() => setActiveView('explorer')} />
+                </motion.div>
+              )}
+              {activeView === 'apps' && (
+                <motion.div 
+                  key="apps"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  className="flex-1"
+                >
+                  <AppManager />
+                </motion.div>
+              )}
+              {activeView === 'network' && (
+                <motion.div 
+                  key="network"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  className="flex-1"
+                >
+                  <NetworkPanel />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -135,7 +184,6 @@ const App: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Footer / Status Bar */}
       <footer className="h-6 bg-primary-600 text-white flex items-center px-4 text-[10px] font-medium tracking-wide">
         <div className="flex items-center gap-4">
           <span>{searchQuery ? `Searching for: ${searchQuery}` : 'Ready'}</span>

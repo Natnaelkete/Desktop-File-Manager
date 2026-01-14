@@ -7,7 +7,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   resolve: {
     alias: {
-      '@': path.join(__dirname, 'src/renderer'),
+      '@': path.join(process.cwd(), 'src/renderer'),
     },
   },
   plugins: [
@@ -22,6 +22,11 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             minify: false,
+            rollupOptions: {
+              output: {
+                entryFileNames: '[name].cjs',
+              },
+            },
           },
         },
       },
@@ -34,6 +39,11 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             minify: false,
+            rollupOptions: {
+              output: {
+                entryFileNames: '[name].cjs',
+              },
+            },
           },
         },
       },
