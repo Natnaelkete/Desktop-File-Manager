@@ -1,5 +1,5 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
-import { fileURLToPath } from 'node:url'
+import { app, BrowserWindow, ipcMain, shell, protocol, net } from 'electron'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import fs_native from 'node:fs'
 import path from 'node:path'
 import fs from 'node:fs/promises'
@@ -20,6 +20,11 @@ const regList = (keys: string[]) => new Promise<any>((resolve, reject) => {
 })
 import { promisify } from 'node:util'
 import crypto from 'node:crypto'
+
+// Register privileged schemes
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'local-resource', privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true, stream: true } }
+])
 
 const lastScanCache = {
   duplicateGroups: [] as string[][]
@@ -91,38 +96,99 @@ app.on('activate', () => {
   }
 })
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  // Register local-resource protocol (Modern API)
+  protocol.handle('local-resource', (request) => {
+    try {
+      const url = request.url.replace(/^local-resource:\/\//, '')
+      const decodedPath = decodeURIComponent(url)
+      return net.fetch(pathToFileURL(decodedPath).toString())
+    } catch (e) {
+      return new Response('Invalid path', { status: 400 })
+    }
+  })
+  
+  createWindow()
+})
+
+ipcMain.handle('get-file-icon', async (_event, filePath: string) => {
+  try {
+    const cleanPath = filePath.split(',')[0].replace(/"/g, '')
+    const icon = await app.getFileIcon(cleanPath, { size: 'normal' })
+    return icon.toDataURL()
+  } catch (error: any) {
+    return null
+  }
+})
 
 // --- IPC Handlers ---
 
+// LRU Cache for directory listings
+const dirCache = new Map<string, { data: any[], timestamp: number }>()
+const CACHE_TTL = 5000 // 5 seconds
+const MAX_CACHE_SIZE = 50
+
+function getCachedDir(dirPath: string) {
+  const cached = dirCache.get(dirPath)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data
+  }
+  return null
+}
+
+function setCachedDir(dirPath: string, data: any[]) {
+  // LRU eviction
+  if (dirCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = dirCache.keys().next().value as string
+    dirCache.delete(firstKey)
+  }
+  dirCache.set(dirPath, { data, timestamp: Date.now() })
+}
+
 ipcMain.handle('list-dir', async (_event, dirPath: string) => {
   try {
+    // Check cache first
+    const cached = getCachedDir(dirPath)
+    if (cached) return cached
+
     const files = await fs.readdir(dirPath, { withFileTypes: true })
-    const stats = await Promise.all(
-      files.map(async (file) => {
-        try {
-          const filePath = path.join(dirPath, file.name)
-          const s = await fs.stat(filePath)
-          return {
-            name: file.name,
-            path: filePath,
-            isDirectory: file.isDirectory(),
-            size: s.size,
-            modifiedAt: s.mtime.getTime(),
-            createdAt: s.birthtime.getTime(),
+    
+    // Parallel processing with batching for better performance
+    const BATCH_SIZE = 100
+    const results: any[] = []
+    
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+      const batch = files.slice(i, i + BATCH_SIZE)
+      const batchResults = await Promise.all(
+        batch.map(async (file) => {
+          try {
+            const filePath = path.join(dirPath, file.name)
+            const s = await fs.stat(filePath)
+            return {
+              name: file.name,
+              path: filePath,
+              isDirectory: file.isDirectory(),
+              size: s.size,
+              modifiedAt: s.mtime.getTime(),
+              createdAt: s.birthtime.getTime(),
+            }
+          } catch (e) {
+            return {
+              name: file.name,
+              path: path.join(dirPath, file.name),
+              isDirectory: file.isDirectory(),
+              size: 0,
+              error: true
+            }
           }
-        } catch (e) {
-          return {
-            name: file.name,
-            path: path.join(dirPath, file.name),
-            isDirectory: file.isDirectory(),
-            size: 0,
-            error: true
-          }
-        }
-      })
-    )
-    return stats
+        })
+      )
+      results.push(...batchResults)
+    }
+    
+    // Cache the results
+    setCachedDir(dirPath, results)
+    return results
   } catch (error: any) {
     throw new Error(error.message)
   }
@@ -150,6 +216,19 @@ ipcMain.handle('get-drives', async () => {
   } catch (error: any) {
     return []
   }
+})
+
+ipcMain.handle('get-user-paths', async () => {
+  const paths = {
+    desktop: app.getPath('desktop'),
+    documents: app.getPath('documents'),
+    downloads: app.getPath('downloads'),
+    pictures: app.getPath('pictures'),
+    videos: app.getPath('videos'),
+    music: app.getPath('music'),
+    home: app.getPath('home')
+  }
+  return paths
 })
 
 ipcMain.handle('delete-items', async (_event, paths: string[]) => {
@@ -514,16 +593,152 @@ ipcMain.handle('find-orphan-leftovers', async () => {
   }
 })
 
+ipcMain.handle('get-library-files', async (_event, type: 'images' | 'videos' | 'music') => {
+  const exts: Record<string, string[]> = {
+    images: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'],
+    videos: ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp', 'ogv'],
+    music: ['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma', 'aiff', 'opus']
+  }
+  const activeType = type || 'images'
+  const targetExts = new Set(exts[activeType] || [])
+  const results: any[] = []
+  const seenPaths = new Set<string>()
+  
+  const userPaths = [
+    app.getPath('pictures'),
+    app.getPath('videos'),
+    app.getPath('music'),
+    app.getPath('desktop'),
+    app.getPath('documents'),
+    app.getPath('downloads')
+  ].map(p => path.normalize(p))
+
+  // Start with user folders (high priority)
+  const libraryPaths = [...userPaths]
+
+  // Aggressive: Also add root of all drives, but avoid rescanning user folders
+  try {
+    const drives = await new Promise<string[]>((resolve) => {
+      exec('wmic logicaldisk get name', (error, stdout) => {
+        if (error) resolve([])
+        else {
+          const names = stdout.split('\n')
+            .map(s => s.trim())
+            .filter(s => s && s.length === 2 && s.endsWith(':'))
+            .map(s => path.normalize(s + '\\'))
+          resolve(names)
+        }
+      })
+    })
+    
+    for (const drive of drives) {
+      if (!libraryPaths.includes(drive)) {
+        libraryPaths.push(drive)
+      }
+    }
+  } catch (e) {}
+
+  const scan = async (dir: string, depth = 0, maxDepth = 5) => {
+    if (depth > maxDepth) return 
+    try {
+      const files = await fs.readdir(dir, { withFileTypes: true })
+      for (const file of files) {
+        try {
+          const fullPath = path.join(dir, file.name)
+          const normalizedPath = fullPath.toLowerCase().replace(/[/\\]+$/, '')
+          
+          if (seenPaths.has(normalizedPath)) continue
+          seenPaths.add(normalizedPath)
+
+          if (file.isDirectory()) {
+            const name = file.name.toLowerCase()
+            // Skip system/junk folders explicitly
+            if (file.name.startsWith('.') || 
+                name === 'windows' || 
+                name === 'program files' ||
+                name === 'program files (x86)' ||
+                name === 'programdata' ||
+                name === 'appdata' || 
+                name === 'node_modules' ||
+                name === 'temp' ||
+                name === 'cache' ||
+                name === '$recycle.bin' ||
+                name === 'system volume information' ||
+                name === 'microsoft') {
+              continue
+            }
+            await scan(fullPath, depth + 1, maxDepth)
+          } else {
+            const ext = file.name.split('.').pop()?.toLowerCase() || ''
+            if (targetExts.has(ext)) {
+              try {
+                const s = fs_native.statSync(fullPath)
+                results.push({
+                  name: file.name,
+                  path: fullPath,
+                  isDirectory: false,
+                  size: s.size,
+                  modifiedAt: s.mtime.getTime(),
+                  createdAt: s.birthtime.getTime(),
+                  parentPath: dir
+                })
+                if (results.length >= 10000) return // Increased limit
+              } catch (e) {}
+            }
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  // Priority: User's own media folders (Depth 8 for deep organization)
+  const priorityPaths = [
+    app.getPath('pictures'),
+    app.getPath('videos'),
+    app.getPath('music'),
+    app.getPath('downloads'),
+    app.getPath('desktop'),
+    app.getPath('documents')
+  ].map(p => path.normalize(p))
+
+  for (const p of priorityPaths) {
+    if (fs_native.existsSync(p)) {
+      await scan(p, 0, 8)
+    }
+  }
+
+  // Expansion: Roots of all drives (Depth 3 for broad coverage)
+  try {
+    const drives = await new Promise<string[]>((resolve) => {
+      exec('wmic logicaldisk get name', (error, stdout) => {
+        if (error) resolve([])
+        else resolve(stdout.split('\n').map(s => s.trim()).filter(s => s.length === 2 && s.endsWith(':')).map(s => s + '\\'))
+      } )
+    })
+    for (const drive of drives) {
+      if (fs_native.existsSync(drive)) {
+        await scan(drive, 0, 3)
+      }
+    }
+  } catch (e) {}
+
+  return results
+})
+
 ipcMain.handle('get-uwp-apps', async () => {
   return new Promise((resolve) => {
-    // Get non-system packages that have an InstallLocation
-    const psCommand = 'Get-AppxPackage | Where-Object { $_.InstallLocation -ne $null } | Select-Object Name, PackageFullName, Version, Publisher, InstallLocation | ConvertTo-Json'
+    // Optimization: Filter for Main packages and exclude framework ones for speed
+    const psCommand = 'Get-AppxPackage -PackageTypeFilter Main | Where-Object { $_.InstallLocation -ne $null } | Select-Object Name, PackageFullName, Version, Publisher, InstallLocation | ConvertTo-Json'
     exec(`powershell -Command "${psCommand}"`, (error, stdout) => {
       if (error) {
         resolve({ error: error.message })
         return
       }
       try {
+        if (!stdout || stdout.trim() === '') {
+          resolve([])
+          return
+        }
         const apps = JSON.parse(stdout)
         const appsArray = Array.isArray(apps) ? apps : [apps]
         resolve(appsArray.map((app: any) => ({

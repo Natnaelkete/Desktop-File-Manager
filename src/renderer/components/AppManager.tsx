@@ -33,6 +33,34 @@ interface AppInfo {
 
 type ViewMode = 'desktop' | 'windows' | 'orphans'
 
+const AppIcon: React.FC<{ app: AppInfo }> = ({ app }) => {
+  const [iconUrl, setIconUrl] = useState<string | null>(null)
+  const [error, setError] = useState(false)
+  
+  useEffect(() => {
+    const loadIcon = async () => {
+      try {
+        if (app.icon) {
+          const url = await (window as any).electronAPI.getFileIcon(app.icon)
+          if (url) setIconUrl(url)
+          else setError(true)
+        } else {
+          setError(true)
+        }
+      } catch (err) {
+        setError(true)
+      }
+    }
+    loadIcon()
+  }, [app.icon])
+
+  if (!error && iconUrl) {
+    return <img src={iconUrl} className="w-7 h-7 object-contain" />
+  }
+
+  return <Package className="text-slate-400 group-hover:text-primary-500 transition-colors" size={24} />
+}
+
 const AppManager: React.FC = () => {
   const { 
     installedApps, setInstalledApps, 
@@ -332,25 +360,27 @@ const AppManager: React.FC = () => {
                     <RefreshCw size={16} /> Re-scan
                   </button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="space-y-3">
                   {orphans.map((o, i) => (
                     <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
                       key={o.path}
-                      className="bg-white dark:bg-slate-900 p-6 rounded-[32px] border border-slate-100 dark:border-slate-800 flex flex-col"
+                      className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center gap-4 hover:border-rose-500/30 transition-all group"
                     >
-                      <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-600 mb-4">
-                        <Ghost size={24} />
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 flex-shrink-0">
+                        <Ghost size={20} />
                       </div>
-                      <h3 className="font-bold text-slate-800 dark:text-white truncate mb-1">{o.name}</h3>
-                      <p className="text-[10px] text-slate-400 font-mono truncate mb-6">{o.path}</p>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-slate-800 dark:text-white truncate">{o.name}</h3>
+                        <p className="text-[10px] text-slate-400 font-mono truncate">{o.path}</p>
+                      </div>
                       <button 
                         onClick={() => {
                           setUninstalling(o.name)
                           setLeftovers({ files: [o.path], registry: [] })
                         }}
-                        className="mt-auto w-full py-3 bg-slate-50 dark:bg-slate-800 text-rose-500 rounded-2xl font-bold text-xs hover:bg-rose-500 hover:text-white transition-all transition-all"
+                        className="px-4 py-2 bg-slate-50 dark:bg-slate-800 text-rose-500 rounded-xl font-bold text-xs hover:bg-rose-500 hover:text-white transition-all whitespace-nowrap"
                       >
                         Deep Clean
                       </button>
@@ -361,66 +391,80 @@ const AppManager: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-            <AnimatePresence>
-              {filteredApps.map((app) => (
-                <motion.div 
-                  layout
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  key={app.fullName || app.name}
-                  className="bg-white dark:bg-slate-900 p-6 rounded-[32px] border border-slate-100 dark:border-slate-800 shadow-xl shadow-slate-200/50 dark:shadow-none hover:border-primary-500/50 transition-all flex flex-col group relative overflow-hidden"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-14 h-14 rounded-2xl bg-slate-50 dark:bg-slate-800/50 flex items-center justify-center border border-slate-100 dark:border-slate-700 shadow-inner group-hover:scale-110 transition-transform">
-                      {app.icon ? (
-                        <img src={`file:///${app.icon.replace(/"/g, '')}`} className="w-8 h-8 object-contain" onError={(e) => (e.currentTarget.style.display = 'none')} />
+          <div className="flex flex-col min-w-full">
+            {/* Headers */}
+            <div className="flex items-center px-6 py-3 bg-slate-100 dark:bg-slate-800/50 rounded-xl mb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              <div className="w-12 h-4 mr-4" /> {/* Icon spacer */}
+              <div className="flex-[3]">Program Name</div>
+              <div className="flex-[2]">Publisher</div>
+              <div className="flex-1">Version</div>
+              <div className="flex-1 text-center">Size</div>
+              <div className="w-[120px] ml-4">Action</div>
+            </div>
+
+            <div className="space-y-2">
+              <AnimatePresence>
+                {filteredApps.map((app) => (
+                  <motion.div 
+                    layout
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    key={app.fullName || app.name}
+                    className="bg-white dark:bg-slate-900 px-6 py-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:border-primary-500/50 transition-all flex items-center group relative overflow-hidden"
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex items-center justify-center border border-slate-100 dark:border-slate-700 shadow-inner group-hover:scale-105 transition-transform flex-shrink-0 mr-4">
+                      <AppIcon app={app} />
+                    </div>
+
+                    <div className="flex-[3] min-w-0 pr-4">
+                      <h3 className="font-bold text-slate-800 dark:text-white truncate group-hover:text-primary-500 transition-colors">{app.name}</h3>
+                      {app.isUWP && <span className="text-[9px] font-black text-sky-500 uppercase tracking-tighter bg-sky-500/5 px-1.5 rounded">Windows App</span>}
+                    </div>
+
+                    <div className="flex-[2] min-w-0 text-xs text-slate-500 font-medium truncate pr-4">
+                      {app.publisher}
+                    </div>
+
+                    <div className="flex-1 text-[10px] text-slate-400 font-bold whitespace-nowrap">
+                       v{app.version}
+                    </div>
+
+                    <div className="flex-1 text-center">
+                      {app.size > 0 ? (
+                        <span className="text-[10px] font-black text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">{formatSize(app.size)}</span>
                       ) : (
-                        <Package className="text-slate-400 group-hover:text-primary-500 transition-colors" size={28} />
+                        <span className="text-[10px] font-bold text-slate-300">--</span>
                       )}
                     </div>
-                    {app.size > 0 && (
-                      <div className="bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl">
-                        <span className="text-[10px] font-black text-slate-500">{formatSize(app.size)}</span>
-                      </div>
-                    )}
-                  </div>
 
-                  <div className="flex-1 mb-6">
-                    <h3 className="font-bold text-slate-800 dark:text-white leading-tight mb-1 line-clamp-1">{app.name}</h3>
-                    <p className="text-[10px] text-slate-400 font-bold line-clamp-1">{app.publisher}</p>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-6 px-1">
-                    <span>V. {app.version}</span>
-                    {app.isUWP && <span className="text-sky-500">Windows App</span>}
-                  </div>
-
-                  <button 
-                    onClick={() => handleUninstall(app)}
-                    disabled={uninstalling === app.name}
-                    className={clsx(
-                      "w-full py-3.5 rounded-2xl font-bold text-xs transition-all flex items-center justify-center gap-2",
-                      uninstalling === app.name 
-                        ? "bg-amber-500/10 text-amber-600" 
-                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-rose-500 hover:text-white hover:shadow-lg hover:shadow-rose-500/20"
-                    )}
-                  >
-                    {uninstalling === app.name ? (
-                      <>
-                        <Loader2 className="animate-spin" size={16} />
-                        {scanning ? "Sweeping Traces..." : "Uninstalling..."}
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 size={16} />
-                        Uninstall
-                      </>
-                    )}
-                  </button>
-                </motion.div>
-              ))}
-            </AnimatePresence>
+                    <div className="w-[120px] ml-4 flex-shrink-0">
+                      <button 
+                        onClick={() => handleUninstall(app)}
+                        disabled={uninstalling === app.name}
+                        className={clsx(
+                          "w-full py-2.5 rounded-xl font-bold text-[11px] transition-all flex items-center justify-center gap-2",
+                          uninstalling === app.name 
+                            ? "bg-amber-500/10 text-amber-600" 
+                            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-rose-500/10 hover:text-rose-500 border border-transparent hover:border-rose-500/20"
+                        )}
+                      >
+                        {uninstalling === app.name ? (
+                          <>
+                            <Loader2 className="animate-spin" size={12} />
+                            {scanning ? "Sweeping..." : "Working..."}
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 size={12} />
+                            Uninstall
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
           </div>
         )}
 

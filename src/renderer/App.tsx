@@ -14,19 +14,44 @@ import {
   Sun, 
   Settings, 
   LayoutDashboard,
-  Bell
+  Bell,
+  Columns
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import hotkeys from 'hotkeys-js'
 
 const App: React.FC = () => {
   console.log('App Component Rendering')
-  const { theme, setTheme, searchQuery, setSearchQuery, activeView, setActiveView } = useStore()
+  const { 
+    theme, setTheme, searchQuery, setSearchQuery, activeView, setActiveView,
+    activeSide, activeLeftTabId, activeRightTabId, goBack, goForward,
+    dualPane, toggleDualPane
+  } = useStore()
   const [analyzerPath, setAnalyzerPath] = useState<string | null>(null)
   const [previewImage, setPreviewImage] = useState<any>(null)
   const [editingFile, setEditingFile] = useState<any>(null)
 
   useEffect(() => {
+    // Keyboard navigation
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent back navigation when typing in input fields
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return
+      }
+
+      const activeTabId = activeSide === 'left' ? activeLeftTabId : activeRightTabId
+
+      if (e.key === 'Backspace') {
+        e.preventDefault()
+        goBack(activeSide, activeTabId)
+      } else if (e.altKey && e.key === 'ArrowRight') {
+        e.preventDefault()
+        goForward(activeSide, activeTabId)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
     hotkeys('ctrl+t', (e) => {
       e.preventDefault()
       setTheme(useStore.getState().theme === 'dark' ? 'light' : 'dark')
@@ -39,6 +64,16 @@ const App: React.FC = () => {
     hotkeys('ctrl+2', () => setActiveView('analyzer'))
     hotkeys('ctrl+3', () => setActiveView('apps'))
     hotkeys('ctrl+4', () => setActiveView('network'))
+    hotkeys('ctrl+w', (e) => {
+      e.preventDefault()
+      const { closeTab, activeSide, activeLeftTabId, activeRightTabId, leftTabs, rightTabs } = useStore.getState()
+      const activeTabId = activeSide === 'left' ? activeLeftTabId : activeRightTabId
+      const tabs = activeSide === 'left' ? leftTabs : rightTabs
+      // Don't close if it's the last tab
+      if (tabs.length > 1) {
+        closeTab(activeSide, activeTabId)
+      }
+    })
     
     const handleOpenImage = (e: any) => setPreviewImage(e.detail)
     const handleOpenText = (e: any) => setEditingFile(e.detail)
@@ -47,6 +82,7 @@ const App: React.FC = () => {
     window.addEventListener('open-text', handleOpenText)
     
     return () => {
+      window.removeEventListener('keydown', handleKeyDown)
       hotkeys.unbind('ctrl+t,ctrl+f,ctrl+1,ctrl+2,ctrl+3,ctrl+4')
       window.removeEventListener('open-image', handleOpenImage)
       window.removeEventListener('open-text', handleOpenText)
@@ -86,8 +122,21 @@ const App: React.FC = () => {
             <button 
               onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
               className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+              title="Toggle Theme"
             >
               {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+            <button 
+              onClick={toggleDualPane}
+              className={clsx(
+                "p-2 rounded-lg transition-all",
+                dualPane 
+                  ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20" 
+                  : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+              )}
+              title={dualPane ? "Switch to Single Pane" : "Switch to Dual Pane"}
+            >
+              <Columns size={20} />
             </button>
             <button className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
               <Settings size={20} />
@@ -110,7 +159,7 @@ const App: React.FC = () => {
                   className="flex-1 flex min-w-0"
                 >
                   <FilePanel side="left" />
-                  <FilePanel side="right" />
+                  {dualPane && <FilePanel side="right" />}
                 </motion.div>
               )}
               {activeView === 'analyzer' && analyzerPath && (
@@ -188,7 +237,7 @@ const App: React.FC = () => {
         <div className="flex items-center gap-4">
           <span>{searchQuery ? `Searching for: ${searchQuery}` : 'Ready'}</span>
           <div className="h-3 w-[1px] bg-white/20" />
-          <span>Items Selected: {useStore.getState().selection.length}</span>
+          <span>Items Selected: {useStore.getState().leftSelection.length + useStore.getState().rightSelection.length}</span>
         </div>
         <div className="ml-auto flex items-center gap-3">
           <span>Win64 v1.0.0</span>

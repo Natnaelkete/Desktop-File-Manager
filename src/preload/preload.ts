@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   uninstallUWPApp: (packageFullName: string) => ipcRenderer.invoke('uninstall-uwp-app', packageFullName),
   forceUninstall: (appName: string, installLocation?: string) => ipcRenderer.invoke('force-uninstall', appName, installLocation),
   findOrphanLeftovers: () => ipcRenderer.invoke('find-orphan-leftovers'),
+  getUserPaths: () => ipcRenderer.invoke('get-user-paths'),
+  getLibraryFiles: (type: string) => ipcRenderer.invoke('get-library-files', type),
+  getFileIcon: (path: string) => ipcRenderer.invoke('get-file-icon', path),
   onMainMessage: (callback: any) => ipcRenderer.on('main-process-message', (_event, value) => callback(value)),
 })
 

@@ -28,7 +28,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ src, name, onClose }) => {
 
       <div className="flex-1 flex items-center justify-center p-8 overflow-hidden">
         <img 
-          src={`file://${src}`} 
+          src={`local-resource://${encodeURIComponent(src)}`} 
           alt={name}
           className="max-w-full max-h-full object-contain shadow-2xl rounded-sm transition-transform duration-300"
         />

@@ -15,7 +15,9 @@ import {
   FileCode,
   Smartphone,
   Globe,
-  Package
+  Package,
+  Eye,
+  EyeOff
 } from 'lucide-react'
 import { useStore } from '../stores/store'
 import { clsx } from 'clsx'
@@ -34,21 +36,26 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer }) => {
   const [drives, setDrives] = useState<Drive[]>([])
-  const { navigateTo, activeLeftTabId, activeView, setActiveView } = useStore()
+  const [userPaths, setUserPaths] = useState<any>(null)
+  const { navigateTo, activeLeftTabId, activeRightTabId, activeSide, activeView, setActiveView, showHidden, toggleHidden } = useStore()
 
   useEffect(() => {
-    const fetchDrives = async () => {
-      const d = await (window as any).electronAPI.getDrives()
+    const init = async () => {
+      const [d, paths] = await Promise.all([
+        (window as any).electronAPI.getDrives(),
+        (window as any).electronAPI.getUserPaths()
+      ])
       setDrives(d)
+      setUserPaths(paths)
     }
-    fetchDrives()
+    init()
   }, [])
 
-  const quickAccess = [
-    { label: 'Documents', path: 'C:\\Users\\use\\Documents', icon: FileText },
-    { label: 'Downloads', path: 'C:\\Users\\use\\Downloads', icon: Download },
-    { label: 'Desktop', path: 'C:\\Users\\use\\Desktop', icon: Monitor },
-  ]
+  const quickAccess = userPaths ? [
+    { label: 'Documents', path: userPaths.documents, icon: FileText },
+    { label: 'Downloads', path: userPaths.downloads, icon: Download },
+    { label: 'Desktop', path: userPaths.desktop, icon: Monitor },
+  ] : []
 
   const tools = [
     { label: 'Analyzer', action: 'analyzer', icon: PieChart },
@@ -57,9 +64,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer }) => {
   ]
 
   const library = [
-    { label: 'Images', path: 'C:\\Users\\use\\Pictures', icon: ImageIcon },
-    { label: 'Videos', path: 'C:\\Users\\use\\Videos', icon: Film },
-    { label: 'Music', path: 'C:\\Users\\use\\Music', icon: Music },
+    { label: 'Images', path: 'library://images', icon: ImageIcon },
+    { label: 'Videos', path: 'library://videos', icon: Film },
+    { label: 'Music', path: 'library://music', icon: Music },
   ]
 
   const handleItemClick = (item: any) => {
@@ -70,7 +77,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer }) => {
       setActiveView(item.view)
     } else if (item.path) {
       setActiveView('explorer')
-      navigateTo('left', activeLeftTabId, item.path)
+      const activeTabId = activeSide === 'left' ? activeLeftTabId : activeRightTabId
+      navigateTo(activeSide, activeTabId, item.path)
     }
   }
 
@@ -90,7 +98,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer }) => {
                 )}
                 onClick={() => {
                   setActiveView('explorer')
-                  navigateTo('left', activeLeftTabId, drive.path)
+                  const activeTabId = activeSide === 'left' ? activeLeftTabId : activeRightTabId
+                  navigateTo(activeSide, activeTabId, drive.path)
                 }}
               >
                 <HardDrive size={18} className="text-primary-500" />
@@ -171,6 +180,20 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer }) => {
             ))}
           </div>
         </section>
+      </div>
+
+      {/* Sidebar Footer / Settings */}
+      <div className="p-4 border-t border-slate-200 dark:border-slate-800 mt-auto">
+        <div 
+          onClick={toggleHidden}
+          className={clsx(
+            "flex items-center gap-3 p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer transition-colors text-slate-500",
+            showHidden && "text-primary-500 bg-primary-500/5"
+          )}
+        >
+          {showHidden ? <Eye size={18} /> : <EyeOff size={18} />}
+          <span className="text-sm font-medium">{showHidden ? 'Hide Hidden' : 'Show Hidden'}</span>
+        </div>
       </div>
     </aside>
   )

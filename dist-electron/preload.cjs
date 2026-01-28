@@ -24,6 +24,9 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   uninstallUWPApp: (packageFullName) => electron.ipcRenderer.invoke("uninstall-uwp-app", packageFullName),
   forceUninstall: (appName, installLocation) => electron.ipcRenderer.invoke("force-uninstall", appName, installLocation),
   findOrphanLeftovers: () => electron.ipcRenderer.invoke("find-orphan-leftovers"),
+  getUserPaths: () => electron.ipcRenderer.invoke("get-user-paths"),
+  getLibraryFiles: (type) => electron.ipcRenderer.invoke("get-library-files", type),
+  getFileIcon: (path) => electron.ipcRenderer.invoke("get-file-icon", path),
   onMainMessage: (callback) => electron.ipcRenderer.on("main-process-message", (_event, value) => callback(value))
 });
 console.log("Preload script loaded with advanced stats support");

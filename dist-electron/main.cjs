@@ -3404,6 +3404,9 @@ const regList = (keys) => new Promise((resolve, reject) => {
     else resolve(result);
   });
 });
+electron.protocol.registerSchemesAsPrivileged([
+  { scheme: "local-resource", privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true, stream: true } }
+]);
 const lastScanCache = {
   duplicateGroups: []
 };
@@ -3465,35 +3468,81 @@ electron.app.on("activate", () => {
     createWindow();
   }
 });
-electron.app.whenReady().then(createWindow);
+electron.app.whenReady().then(() => {
+  electron.protocol.handle("local-resource", (request) => {
+    try {
+      const url = request.url.replace(/^local-resource:\/\//, "");
+      const decodedPath = decodeURIComponent(url);
+      return electron.net.fetch(node_url.pathToFileURL(decodedPath).toString());
+    } catch (e) {
+      return new Response("Invalid path", { status: 400 });
+    }
+  });
+  createWindow();
+});
+electron.ipcMain.handle("get-file-icon", async (_event, filePath) => {
+  try {
+    const cleanPath = filePath.split(",")[0].replace(/"/g, "");
+    const icon = await electron.app.getFileIcon(cleanPath, { size: "normal" });
+    return icon.toDataURL();
+  } catch (error) {
+    return null;
+  }
+});
+const dirCache = /* @__PURE__ */ new Map();
+const CACHE_TTL = 5e3;
+const MAX_CACHE_SIZE = 50;
+function getCachedDir(dirPath) {
+  const cached = dirCache.get(dirPath);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+function setCachedDir(dirPath, data) {
+  if (dirCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = dirCache.keys().next().value;
+    dirCache.delete(firstKey);
+  }
+  dirCache.set(dirPath, { data, timestamp: Date.now() });
+}
 electron.ipcMain.handle("list-dir", async (_event, dirPath) => {
   try {
+    const cached = getCachedDir(dirPath);
+    if (cached) return cached;
     const files = await fs$1.readdir(dirPath, { withFileTypes: true });
-    const stats = await Promise.all(
-      files.map(async (file) => {
-        try {
-          const filePath = path.join(dirPath, file.name);
-          const s = await fs$1.stat(filePath);
-          return {
-            name: file.name,
-            path: filePath,
-            isDirectory: file.isDirectory(),
-            size: s.size,
-            modifiedAt: s.mtime.getTime(),
-            createdAt: s.birthtime.getTime()
-          };
-        } catch (e) {
-          return {
-            name: file.name,
-            path: path.join(dirPath, file.name),
-            isDirectory: file.isDirectory(),
-            size: 0,
-            error: true
-          };
-        }
-      })
-    );
-    return stats;
+    const BATCH_SIZE = 100;
+    const results = [];
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+      const batch = files.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (file) => {
+          try {
+            const filePath = path.join(dirPath, file.name);
+            const s = await fs$1.stat(filePath);
+            return {
+              name: file.name,
+              path: filePath,
+              isDirectory: file.isDirectory(),
+              size: s.size,
+              modifiedAt: s.mtime.getTime(),
+              createdAt: s.birthtime.getTime()
+            };
+          } catch (e) {
+            return {
+              name: file.name,
+              path: path.join(dirPath, file.name),
+              isDirectory: file.isDirectory(),
+              size: 0,
+              error: true
+            };
+          }
+        })
+      );
+      results.push(...batchResults);
+    }
+    setCachedDir(dirPath, results);
+    return results;
   } catch (error) {
     throw new Error(error.message);
   }
@@ -3520,6 +3569,18 @@ electron.ipcMain.handle("get-drives", async () => {
   } catch (error) {
     return [];
   }
+});
+electron.ipcMain.handle("get-user-paths", async () => {
+  const paths = {
+    desktop: electron.app.getPath("desktop"),
+    documents: electron.app.getPath("documents"),
+    downloads: electron.app.getPath("downloads"),
+    pictures: electron.app.getPath("pictures"),
+    videos: electron.app.getPath("videos"),
+    music: electron.app.getPath("music"),
+    home: electron.app.getPath("home")
+  };
+  return paths;
 });
 electron.ipcMain.handle("delete-items", async (_event, paths) => {
   try {
@@ -3845,15 +3906,126 @@ electron.ipcMain.handle("find-orphan-leftovers", async () => {
     return { error: "Orphan scan failed" };
   }
 });
+electron.ipcMain.handle("get-library-files", async (_event, type) => {
+  const exts = {
+    images: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"],
+    videos: ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp", "ogv"],
+    music: ["mp3", "wav", "flac", "aac", "ogg", "m4a", "wma", "aiff", "opus"]
+  };
+  const activeType = type || "images";
+  const targetExts = new Set(exts[activeType] || []);
+  const results = [];
+  const seenPaths = /* @__PURE__ */ new Set();
+  const userPaths = [
+    electron.app.getPath("pictures"),
+    electron.app.getPath("videos"),
+    electron.app.getPath("music"),
+    electron.app.getPath("desktop"),
+    electron.app.getPath("documents"),
+    electron.app.getPath("downloads")
+  ].map((p) => path.normalize(p));
+  const libraryPaths = [...userPaths];
+  try {
+    const drives = await new Promise((resolve) => {
+      node_child_process.exec("wmic logicaldisk get name", (error, stdout) => {
+        if (error) resolve([]);
+        else {
+          const names = stdout.split("\n").map((s) => s.trim()).filter((s) => s && s.length === 2 && s.endsWith(":")).map((s) => path.normalize(s + "\\"));
+          resolve(names);
+        }
+      });
+    });
+    for (const drive of drives) {
+      if (!libraryPaths.includes(drive)) {
+        libraryPaths.push(drive);
+      }
+    }
+  } catch (e) {
+  }
+  const scan = async (dir, depth = 0, maxDepth = 5) => {
+    var _a;
+    if (depth > maxDepth) return;
+    try {
+      const files = await fs$1.readdir(dir, { withFileTypes: true });
+      for (const file of files) {
+        try {
+          const fullPath = path.join(dir, file.name);
+          const normalizedPath = fullPath.toLowerCase().replace(/[/\\]+$/, "");
+          if (seenPaths.has(normalizedPath)) continue;
+          seenPaths.add(normalizedPath);
+          if (file.isDirectory()) {
+            const name = file.name.toLowerCase();
+            if (file.name.startsWith(".") || name === "windows" || name === "program files" || name === "program files (x86)" || name === "programdata" || name === "appdata" || name === "node_modules" || name === "temp" || name === "cache" || name === "$recycle.bin" || name === "system volume information" || name === "microsoft") {
+              continue;
+            }
+            await scan(fullPath, depth + 1, maxDepth);
+          } else {
+            const ext = ((_a = file.name.split(".").pop()) == null ? void 0 : _a.toLowerCase()) || "";
+            if (targetExts.has(ext)) {
+              try {
+                const s = fs_native.statSync(fullPath);
+                results.push({
+                  name: file.name,
+                  path: fullPath,
+                  isDirectory: false,
+                  size: s.size,
+                  modifiedAt: s.mtime.getTime(),
+                  createdAt: s.birthtime.getTime(),
+                  parentPath: dir
+                });
+                if (results.length >= 1e4) return;
+              } catch (e) {
+              }
+            }
+          }
+        } catch (e) {
+        }
+      }
+    } catch (e) {
+    }
+  };
+  const priorityPaths = [
+    electron.app.getPath("pictures"),
+    electron.app.getPath("videos"),
+    electron.app.getPath("music"),
+    electron.app.getPath("downloads"),
+    electron.app.getPath("desktop"),
+    electron.app.getPath("documents")
+  ].map((p) => path.normalize(p));
+  for (const p of priorityPaths) {
+    if (fs_native.existsSync(p)) {
+      await scan(p, 0, 8);
+    }
+  }
+  try {
+    const drives = await new Promise((resolve) => {
+      node_child_process.exec("wmic logicaldisk get name", (error, stdout) => {
+        if (error) resolve([]);
+        else resolve(stdout.split("\n").map((s) => s.trim()).filter((s) => s.length === 2 && s.endsWith(":")).map((s) => s + "\\"));
+      });
+    });
+    for (const drive of drives) {
+      if (fs_native.existsSync(drive)) {
+        await scan(drive, 0, 3);
+      }
+    }
+  } catch (e) {
+  }
+  return results;
+});
 electron.ipcMain.handle("get-uwp-apps", async () => {
   return new Promise((resolve) => {
-    const psCommand = "Get-AppxPackage | Where-Object { $_.InstallLocation -ne $null } | Select-Object Name, PackageFullName, Version, Publisher, InstallLocation | ConvertTo-Json";
+    const psCommand = "Get-AppxPackage -PackageTypeFilter Main | Where-Object { $_.InstallLocation -ne $null } | Select-Object Name, PackageFullName, Version, Publisher, InstallLocation | ConvertTo-Json";
     node_child_process.exec(`powershell -Command "${psCommand}"`, (error, stdout) => {
       if (error) {
         resolve({ error: error.message });
         return;
       }
       try {
+        if (!stdout || stdout.trim() === "") {
+          resolve([]);
+          return;
+        }
         const apps = JSON.parse(stdout);
         const appsArray = Array.isArray(apps) ? apps : [apps];
         resolve(appsArray.map((app2) => ({
