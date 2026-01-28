@@ -98,13 +98,50 @@ app.on('activate', () => {
 
 app.whenReady().then(() => {
   // Register local-resource protocol (Modern API)
-  protocol.handle('local-resource', (request) => {
+  protocol.handle('local-resource', async (request) => {
     try {
-      const url = request.url.replace(/^local-resource:\/\//, '')
-      const decodedPath = decodeURIComponent(url)
-      return net.fetch(pathToFileURL(decodedPath).toString())
+      const url = new URL(request.url)
+      const decodedPath = url.searchParams.get('path')
+      
+      if (!decodedPath) {
+        return new Response('Missing path parameter', { status: 400 })
+      }
+
+      // Check if file exists
+      if (!fs_native.existsSync(decodedPath)) {
+        console.error('File not found:', decodedPath)
+        return new Response('File not found', { status: 404 })
+      }
+
+      const buffer = fs_native.readFileSync(decodedPath)
+      const ext = path.extname(decodedPath).toLowerCase()
+      const mimeTypes: Record<string, string> = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.bmp': 'image/bmp',
+        '.svg': 'image/svg+xml',
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm',
+        '.ogv': 'video/ogg',
+        '.mp3': 'audio/mpeg',
+        '.wav': 'audio/wav',
+        '.flac': 'audio/flac',
+        '.m4a': 'audio/mp4',
+        '.opus': 'audio/ogg'
+      }
+
+      return new Response(buffer, {
+        headers: { 
+          'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+          'Access-Control-Allow-Origin': '*' // Helpful for some loads
+        }
+      })
     } catch (e) {
-      return new Response('Invalid path', { status: 400 })
+      console.error('Protocol Error:', e)
+      return new Response('Invalid path or read error', { status: 500 })
     }
   })
   

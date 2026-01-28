@@ -415,7 +415,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
                         gridSize === 'xl' && "w-48 h-48"
                       )}>
                         <img 
-                          src={`local-resource://${encodeURIComponent(file.path)}`} 
+                          src={`local-resource://media/?path=${encodeURIComponent(file.path)}`} 
                           className="w-full h-full object-cover"
                           loading="lazy"
                           alt={file.name}

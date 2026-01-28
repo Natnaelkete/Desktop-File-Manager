@@ -22,7 +22,7 @@ const VideoThumbnail: React.FC<VideoThumbnailProps> = ({ path, gridSize }) => {
 
   useEffect(() => {
     let isMounted = true
-    const videoUrl = `local-resource://${encodeURIComponent(path)}`
+    const videoUrl = `local-resource://media/?path=${encodeURIComponent(path)}`
     
     const timeout = setTimeout(() => {
       if (isMounted && loading) {
@@ -89,7 +89,7 @@ const VideoThumbnail: React.FC<VideoThumbnailProps> = ({ path, gridSize }) => {
       {!thumbnail && loading && (
         <video
           ref={videoRef}
-          src={`local-resource://${encodeURIComponent(path)}`}
+          src={`local-resource://media/?path=${encodeURIComponent(path)}`}
           onLoadedMetadata={handleMetadataLoaded}
           onSeeked={handleSeeked}
           onError={handleError}
