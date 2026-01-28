@@ -89,8 +89,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       await (window as any).electronAPI.deleteItems(selection)
       refresh(tab.path)
     } else if (action === 'hash-md5' && selection.length === 1) {
-      const hash = await (window as any).electronAPI.getFileHash(selection[0], 'md5')
-      alert(`MD5 Hash: ${hash}`)
+      const result = await (window as any).electronAPI.getFileHash(selection[0], 'md5')
+      if (result && typeof result === 'object' && result.error) {
+        alert(`Error calculating hash: ${result.error}`)
+      } else {
+        const hashDisplay = typeof result === 'string' ? result : JSON.stringify(result)
+        alert(`MD5 Hash: ${hashDisplay}`)
+      }
     } else if (action === 'rename') {
       if (selection.length > 1) {
         setShowBatchRename(true)
@@ -150,7 +155,14 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       const textExts = ['txt', 'md', 'json', 'js', 'ts', 'tsx', 'css', 'html', 'py', 'java', 'c', 'cpp', 'sh']
       
       if (imageExts.includes(ext || '')) {
-        window.dispatchEvent(new CustomEvent('open-image', { detail: file }))
+        const imageFiles = filteredFiles.filter((f: any) => {
+          const fext = f.name.split('.').pop()?.toLowerCase()
+          return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(fext || '')
+        })
+        const indexAt = imageFiles.findIndex((f: any) => f.path === file.path)
+        window.dispatchEvent(new CustomEvent('open-image', { 
+          detail: { items: imageFiles, index: indexAt >= 0 ? indexAt : 0 } 
+        }))
       } else if (textExts.includes(ext || '')) {
         window.dispatchEvent(new CustomEvent('open-text', { detail: file }))
       } else if (ext === 'zip') {

@@ -3476,34 +3476,14 @@ electron.app.whenReady().then(() => {
       if (!decodedPath) {
         return new Response("Missing path parameter", { status: 400 });
       }
-      if (!fs_native.existsSync(decodedPath)) {
-        console.error("File not found:", decodedPath);
-        return new Response("File not found", { status: 404 });
-      }
-      const buffer = fs_native.readFileSync(decodedPath);
-      const ext = path.extname(decodedPath).toLowerCase();
-      const mimeTypes = {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".gif": "image/gif",
-        ".webp": "image/webp",
-        ".bmp": "image/bmp",
-        ".svg": "image/svg+xml",
-        ".mp4": "video/mp4",
-        ".webm": "video/webm",
-        ".ogv": "video/ogg",
-        ".mp3": "audio/mpeg",
-        ".wav": "audio/wav",
-        ".flac": "audio/flac",
-        ".m4a": "audio/mp4",
-        ".opus": "audio/ogg"
-      };
-      return new Response(buffer, {
+      const fileUrl = node_url.pathToFileURL(decodedPath).toString();
+      const response = await electron.net.fetch(fileUrl);
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
         headers: {
-          "Content-Type": mimeTypes[ext] || "application/octet-stream",
+          ...Object.fromEntries(response.headers.entries()),
           "Access-Control-Allow-Origin": "*"
-          // Helpful for some loads
         }
       });
     } catch (e) {
@@ -3686,14 +3666,26 @@ electron.ipcMain.handle("search-files", async (_event, dirPath, query) => {
   }
 });
 electron.ipcMain.handle("get-file-hash", async (_event, filePath, algorithm) => {
-  try {
-    const fileBuffer = await fs$1.readFile(filePath);
-    const hashSum = crypto.createHash(algorithm);
-    hashSum.update(fileBuffer);
-    return hashSum.digest("hex");
-  } catch (error) {
-    return { error: error.message };
-  }
+  return new Promise((resolve) => {
+    try {
+      console.log(`Hashing file: ${filePath} (${algorithm})`);
+      const hash = crypto.createHash(algorithm);
+      const stream = fs_native.createReadStream(filePath);
+      stream.on("data", (data) => hash.update(data));
+      stream.on("end", () => {
+        const result = hash.digest("hex");
+        console.log(`Hash success: ${result.substring(0, 8)}...`);
+        resolve(result);
+      });
+      stream.on("error", (err) => {
+        console.error(`Hash stream error: ${err.message}`);
+        resolve({ error: err.message });
+      });
+    } catch (error) {
+      console.error(`Hash catch error: ${error.message}`);
+      resolve({ error: error.message });
+    }
+  });
 });
 electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
   try {

@@ -107,36 +107,18 @@ app.whenReady().then(() => {
         return new Response('Missing path parameter', { status: 400 })
       }
 
-      // Check if file exists
-      if (!fs_native.existsSync(decodedPath)) {
-        console.error('File not found:', decodedPath)
-        return new Response('File not found', { status: 404 })
-      }
-
-      const buffer = fs_native.readFileSync(decodedPath)
-      const ext = path.extname(decodedPath).toLowerCase()
-      const mimeTypes: Record<string, string> = {
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.png': 'image/png',
-        '.gif': 'image/gif',
-        '.webp': 'image/webp',
-        '.bmp': 'image/bmp',
-        '.svg': 'image/svg+xml',
-        '.mp4': 'video/mp4',
-        '.webm': 'video/webm',
-        '.ogv': 'video/ogg',
-        '.mp3': 'audio/mpeg',
-        '.wav': 'audio/wav',
-        '.flac': 'audio/flac',
-        '.m4a': 'audio/mp4',
-        '.opus': 'audio/ogg'
-      }
-
-      return new Response(buffer, {
-        headers: { 
-          'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-          'Access-Control-Allow-Origin': '*' // Helpful for some loads
+      // Use pathToFileURL to create a valid file:// URI for net.fetch
+      // This supports streaming natively and is memory-efficient
+      const fileUrl = pathToFileURL(decodedPath).toString()
+      const response = await net.fetch(fileUrl)
+      
+      // We wrap the response to add CORS or custom headers if needed
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: {
+          ...Object.fromEntries(response.headers.entries()),
+          'Access-Control-Allow-Origin': '*'
         }
       })
     } catch (e) {
@@ -342,14 +324,27 @@ ipcMain.handle('search-files', async (_event, dirPath: string, query: string) =>
 })
 
 ipcMain.handle('get-file-hash', async (_event, filePath: string, algorithm: 'md5' | 'sha1') => {
-  try {
-    const fileBuffer = await fs.readFile(filePath)
-    const hashSum = crypto.createHash(algorithm)
-    hashSum.update(fileBuffer)
-    return hashSum.digest('hex')
-  } catch (error: any) {
-    return { error: error.message }
-  }
+  return new Promise((resolve) => {
+    try {
+      console.log(`Hashing file: ${filePath} (${algorithm})`)
+      const hash = crypto.createHash(algorithm)
+      const stream = fs_native.createReadStream(filePath)
+      
+      stream.on('data', (data) => hash.update(data))
+      stream.on('end', () => {
+        const result = hash.digest('hex')
+        console.log(`Hash success: ${result.substring(0, 8)}...`)
+        resolve(result)
+      })
+      stream.on('error', (err) => {
+        console.error(`Hash stream error: ${err.message}`)
+        resolve({ error: err.message })
+      })
+    } catch (error: any) {
+      console.error(`Hash catch error: ${error.message}`)
+      resolve({ error: error.message })
+    }
+  })
 })
 
 ipcMain.handle('get-advanced-stats', async (_event, dirPath: string) => {

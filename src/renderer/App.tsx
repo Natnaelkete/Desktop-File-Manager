@@ -28,7 +28,7 @@ const App: React.FC = () => {
     dualPane, toggleDualPane
   } = useStore()
   const [analyzerPath, setAnalyzerPath] = useState<string | null>(null)
-  const [previewImage, setPreviewImage] = useState<any>(null)
+  const [viewerData, setViewerData] = useState<{ items: any[], index: number } | null>(null)
   const [editingFile, setEditingFile] = useState<any>(null)
 
   useEffect(() => {
@@ -75,7 +75,7 @@ const App: React.FC = () => {
       }
     })
     
-    const handleOpenImage = (e: any) => setPreviewImage(e.detail)
+    const handleOpenImage = (e: any) => setViewerData(e.detail)
     const handleOpenText = (e: any) => setEditingFile(e.detail)
     
     window.addEventListener('open-image', handleOpenImage)
@@ -201,7 +201,7 @@ const App: React.FC = () => {
       </div>
 
       <AnimatePresence>
-        {previewImage && (
+        {viewerData && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -209,9 +209,9 @@ const App: React.FC = () => {
             className="fixed inset-0 z-[100]"
           >
             <ImageViewer 
-              src={previewImage.path} 
-              name={previewImage.name} 
-              onClose={() => setPreviewImage(null)} 
+              items={viewerData.items}
+              startIndex={viewerData.index}
+              onClose={() => setViewerData(null)} 
             />
           </motion.div>
         )}
