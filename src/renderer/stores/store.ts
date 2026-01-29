@@ -35,6 +35,7 @@ interface AppState {
   activeSide: 'left' | 'right'
   showHidden: boolean
   dualPane: boolean
+  clipboard: { paths: string[], type: 'copy' | 'cut' | null }
   
   // View Settings
   leftGridSize: 'small' | 'medium' | 'large' | 'xl'
@@ -72,6 +73,9 @@ interface AppState {
   setGridSize: (side: 'left' | 'right', size: 'small' | 'medium' | 'large' | 'xl') => void
   setSortBy: (side: 'left' | 'right', sortBy: 'name' | 'size' | 'date' | 'type') => void
   setSortOrder: (side: 'left' | 'right', order: 'asc' | 'desc') => void
+  copySelection: (side: 'left' | 'right') => void
+  cutSelection: (side: 'left' | 'right') => void
+  clearClipboard: () => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -92,6 +96,7 @@ export const useStore = create<AppState>((set) => ({
   activeSide: 'left',
   showHidden: false,
   dualPane: true,
+  clipboard: { paths: [], type: null },
   leftGridSize: 'medium',
   rightGridSize: 'medium',
   leftSortBy: 'name',
@@ -191,4 +196,14 @@ export const useStore = create<AppState>((set) => ({
   setGridSize: (side, size) => set({ [side === 'left' ? 'leftGridSize' : 'rightGridSize']: size }),
   setSortBy: (side, sortBy) => set({ [side === 'left' ? 'leftSortBy' : 'rightSortBy']: sortBy }),
   setSortOrder: (side, order) => set({ [side === 'left' ? 'leftSortOrder' : 'rightSortOrder']: order }),
+
+  copySelection: (side) => set((state: any) => ({
+    clipboard: { paths: side === 'left' ? state.leftSelection : state.rightSelection, type: 'copy' }
+  })),
+
+  cutSelection: (side) => set((state: any) => ({
+    clipboard: { paths: side === 'left' ? state.leftSelection : state.rightSelection, type: 'cut' }
+  })),
+
+  clearClipboard: () => set({ clipboard: { paths: [], type: null } }),
 }))

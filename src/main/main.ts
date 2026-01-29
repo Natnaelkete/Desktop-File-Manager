@@ -270,6 +270,51 @@ ipcMain.handle('rename-item', async (_event, oldPath: string, newPath: string) =
   }
 })
 
+ipcMain.handle('copy-items', async (_event, sourcePaths: string[], destDir: string) => {
+  try {
+    for (const src of sourcePaths) {
+      const fileName = path.basename(src)
+      const dest = path.join(destDir, fileName)
+      
+      if (fs_native.existsSync(dest)) {
+        return { error: 'ALREADY_EXISTS', details: fileName }
+      }
+      
+      await fs.cp(src, dest, { recursive: true })
+    }
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message }
+  }
+})
+
+ipcMain.handle('move-items', async (_event, sourcePaths: string[], destDir: string) => {
+  try {
+    for (const src of sourcePaths) {
+      const fileName = path.basename(src)
+      const dest = path.join(destDir, fileName)
+
+      if (fs_native.existsSync(dest)) {
+        return { error: 'ALREADY_EXISTS', details: fileName }
+      }
+
+      try {
+        await fs.rename(src, dest)
+      } catch (e: any) {
+        if (e.code === 'EXDEV') {
+          await fs.cp(src, dest, { recursive: true })
+          await fs.rm(src, { recursive: true, force: true })
+        } else {
+          throw e
+        }
+      }
+    }
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message }
+  }
+})
+
 ipcMain.handle('create-folder', async (_event, folderPath: string) => {
   try {
     await fs.mkdir(folderPath, { recursive: true })

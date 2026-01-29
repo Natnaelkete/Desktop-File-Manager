@@ -8,6 +8,7 @@ import { useFileBrowser } from '../hooks/useFileBrowser'
 import { clsx } from 'clsx'
 import TabBar from './TabBar'
 import BatchRenameDialog from './BatchRenameDialog'
+import RenameDialog from './RenameDialog'
 import { FixedSizeList as List, areEqual } from 'react-window'
 import { AutoSizer } from 'react-virtualized-auto-sizer'
 
@@ -17,7 +18,7 @@ interface FilePanelProps {
 
 
 const FileRow = memo(({ index, style, data }: { index: number, style: React.CSSProperties, data: any }) => {
-  const { files, selection, handleFileClick, handleDoubleClick, formatSize, isLibraryView } = data
+  const { files, selection, handleFileClick, handleDoubleClick, formatSize, isLibraryView, handleDragStart } = data
   const file = files[index]
   if (!file) return null
 
@@ -30,6 +31,8 @@ const FileRow = memo(({ index, style, data }: { index: number, style: React.CSSP
         "flex items-center hover:bg-primary-50 dark:hover:bg-primary-900/10 cursor-default group border-b border-slate-50 dark:border-slate-800/50 px-4",
         selection.includes(file.path) && "bg-primary-100/50 dark:bg-primary-900/20"
       )}
+      draggable
+      onDragStart={(e) => data.handleDragStart(e, file)}
     >
       <div className="flex-[3] flex items-center gap-3 min-w-0">
         {file.isDirectory ? (
@@ -61,7 +64,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
   const viewMode = useStore((state: any) => side === 'left' ? state.leftViewMode : state.rightViewMode)
   const showHidden = useStore((state: any) => state.showHidden)
   const selection = useStore((state: any) => side === 'left' ? state.leftSelection : state.rightSelection)
-  const { navigateTo, setLeftViewMode, setRightViewMode, setSelection, toggleHidden, setActiveSide, setGridSize, setSortBy, setSortOrder } = useStore()
+  const { navigateTo, setLeftViewMode, setRightViewMode, setSelection, toggleHidden, setActiveSide, setGridSize, setSortBy, setSortOrder, copySelection, cutSelection, clearClipboard } = useStore()
   const gridSize = useStore((state: any) => side === 'left' ? state.leftGridSize : state.rightGridSize)
   const sortBy = useStore((state: any) => side === 'left' ? state.leftSortBy : state.rightSortBy)
   const sortOrder = useStore((state: any) => side === 'left' ? state.leftSortOrder : state.rightSortOrder)
@@ -69,6 +72,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
   
   const [menuPos, setMenuPos] = useState<{ x: number, y: number } | null>(null)
   const [showBatchRename, setShowBatchRename] = useState(false)
+  const [renameItem, setRenameItem] = useState<{ path: string, name: string } | null>(null)
   const [propertiesFile, setPropertiesFile] = useState<FileItem | null>(null)
 
   useEffect(() => {
@@ -100,24 +104,88 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       if (selection.length > 1) {
         setShowBatchRename(true)
       } else if (selection.length === 1) {
-        const newName = prompt('Enter new name:', selection[0].split('\\').pop())
-        if (newName) {
-          const dir = selection[0].substring(0, selection[0].lastIndexOf('\\'))
-          await (window as any).electronAPI.renameItem(selection[0], `${dir}\\${newName}`)
-          refresh(tab.path)
-        }
+        const path = selection[0]
+        const name = path.split('\\').pop() || ''
+        setRenameItem({ path, name })
       }
     } else if (action === 'properties' && selection.length === 1) {
-      const file = filteredFiles.find((f: FileItem) => f.path === selection[0])
+      const file = tab.files.find((f: FileItem) => f.path === selection[0])
       if (file) setPropertiesFile(file)
     } else if (action === 'copy' && selection.length > 0) {
-      alert('Copy not implemented yet')
+      copySelection(side)
     } else if (action === 'cut' && selection.length > 0) {
-      alert('Cut not implemented yet')
+      cutSelection(side)
     } else if (action === 'paste') {
-      alert('Paste not implemented yet')
+      if (tab.path.startsWith('library://')) {
+        alert('Cannot paste into library view. Please go to a physical folder.')
+        setMenuPos(null)
+        return
+      }
+      const clipboard = useStore.getState().clipboard
+      if (clipboard.paths.length > 0) {
+        let result;
+        if (clipboard.type === 'copy') {
+          result = await (window as any).electronAPI.copyItems(clipboard.paths, tab.path)
+        } else if (clipboard.type === 'cut') {
+          result = await (window as any).electronAPI.moveItems(clipboard.paths, tab.path)
+          if (result && !result.error) clearClipboard()
+        }
+        
+        if (result && result.error === 'ALREADY_EXISTS') {
+          alert(`"${result.details}" already exists in the destination folder.`)
+        } else if (result && result.error) {
+          alert(`Error: ${result.error}`)
+        }
+        
+        refresh(tab.path)
+      }
     }
     setMenuPos(null)
+  }
+
+  const handleDragStart = (e: React.DragEvent, file: FileItem) => {
+    let dragPaths = selection
+    if (!selection.includes(file.path)) {
+      setSelection(side, [file.path])
+      dragPaths = [file.path]
+    }
+    
+    e.dataTransfer.setData('application/x-file-manager-paths', JSON.stringify(dragPaths))
+    e.dataTransfer.effectAllowed = 'copyMove'
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    if (tab.path.startsWith('library://')) {
+      return
+    }
+    const data = e.dataTransfer.getData('application/x-file-manager-paths')
+    if (data) {
+      try {
+        const sourcePaths = JSON.parse(data)
+        if (sourcePaths.length > 0) {
+          // Avoid copying into the same directory
+          const srcDir = sourcePaths[0].substring(0, sourcePaths[0].lastIndexOf('\\'))
+          if (srcDir === tab.path) return
+
+          const result = await (window as any).electronAPI.copyItems(sourcePaths, tab.path)
+          if (result && result.error === 'ALREADY_EXISTS') {
+            alert(`"${result.details}" already exists in the destination folder.`)
+          } else if (result && result.error) {
+            alert(`Error: ${result.error}`)
+          }
+          
+          refresh(tab.path)
+        }
+      } catch (err) {
+        console.error('Drop failed:', err)
+      }
+    }
   }
 
   const handleFileClick = (e: React.MouseEvent, file: FileItem) => {
@@ -345,7 +413,11 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       </div>
 
       {/* File Content */}
-      <div className="flex-1 flex flex-col min-h-0 no-drag bg-slate-50/50 dark:bg-slate-900/50 relative overflow-hidden">
+      <div 
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        className="flex-1 flex flex-col min-h-0 no-drag bg-slate-50/50 dark:bg-slate-900/50 relative overflow-hidden"
+      >
         {viewMode === 'list' ? (
           <div className="flex-1 flex flex-col min-h-0 w-full h-full relative">
             <div className="flex bg-slate-100 dark:bg-slate-800 font-bold text-[10px] text-slate-500 uppercase py-3 px-4 shadow-sm z-10 flex-shrink-0">
@@ -373,7 +445,8 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
                           handleFileClick,
                           handleDoubleClick,
                           formatSize,
-                          isLibraryView: tab.path.startsWith('library://')
+                          isLibraryView: tab.path.startsWith('library://'),
+                          handleDragStart
                         }}
                       >
                         {FileRow}
@@ -400,6 +473,8 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
               return (
                 <div 
                   key={file.path}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, file)}
                   onClick={(e) => handleFileClick(e, file)}
                   onDoubleClick={() => handleDoubleClick(file)}
                   className={clsx(
@@ -499,14 +574,74 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         />
       )}
 
+      {renameItem && (
+        <RenameDialog
+          initialName={renameItem.name}
+          onClose={() => setRenameItem(null)}
+          onRename={async (newName) => {
+            const dir = renameItem.path.substring(0, renameItem.path.lastIndexOf('\\'))
+            const newPath = `${dir}\\${newName}`
+            await (window as any).electronAPI.renameItem(renameItem.path, newPath)
+            refresh(tab.path)
+          }}
+        />
+      )}
+
       {propertiesFile && (
         <PropertiesModal 
           file={propertiesFile} 
           onClose={() => setPropertiesFile(null)} 
         />
       )}
+
+      <KeyboardShortcuts 
+        side={side} 
+        selection={selection} 
+        filteredFiles={filteredFiles} 
+        handleAction={handleAction} 
+        setSelection={setSelection} 
+      />
     </div>
   )
+}
+
+function KeyboardShortcuts({ side, selection, filteredFiles, handleAction, setSelection }: any) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const currentActiveSide = useStore.getState().activeSide
+      if (currentActiveSide !== side) return
+
+      if (e.ctrlKey || e.metaKey) {
+        switch (e.key.toLowerCase()) {
+          case 'c':
+            if (selection.length > 0) {
+              e.preventDefault()
+              handleAction('copy')
+            }
+            break
+          case 'x':
+            if (selection.length > 0) {
+              e.preventDefault()
+              handleAction('cut')
+            }
+            break
+          case 'v':
+            e.preventDefault()
+            handleAction('paste')
+            break
+          case 'a':
+            e.preventDefault()
+            setSelection(side, filteredFiles.map((f: any) => f.path))
+            break
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [side, selection, filteredFiles, handleAction, setSelection])
+
+  return null
 }
 
 export default FilePanel

@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getUserPaths: () => ipcRenderer.invoke('get-user-paths'),
   getLibraryFiles: (type: string) => ipcRenderer.invoke('get-library-files', type),
   getFileIcon: (path: string) => ipcRenderer.invoke('get-file-icon', path),
+  copyItems: (sourcePaths: string[], destDir: string) => ipcRenderer.invoke('copy-items', sourcePaths, destDir),
+  moveItems: (sourcePaths: string[], destDir: string) => ipcRenderer.invoke('move-items', sourcePaths, destDir),
   onMainMessage: (callback: any) => ipcRenderer.on('main-process-message', (_event, value) => callback(value)),
 })
 

@@ -3613,6 +3613,45 @@ electron.ipcMain.handle("rename-item", async (_event, oldPath, newPath) => {
     return { error: error.message };
   }
 });
+electron.ipcMain.handle("copy-items", async (_event, sourcePaths, destDir) => {
+  try {
+    for (const src2 of sourcePaths) {
+      const fileName = path.basename(src2);
+      const dest = path.join(destDir, fileName);
+      if (fs_native.existsSync(dest)) {
+        return { error: "ALREADY_EXISTS", details: fileName };
+      }
+      await fs$1.cp(src2, dest, { recursive: true });
+    }
+    return { success: true };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+electron.ipcMain.handle("move-items", async (_event, sourcePaths, destDir) => {
+  try {
+    for (const src2 of sourcePaths) {
+      const fileName = path.basename(src2);
+      const dest = path.join(destDir, fileName);
+      if (fs_native.existsSync(dest)) {
+        return { error: "ALREADY_EXISTS", details: fileName };
+      }
+      try {
+        await fs$1.rename(src2, dest);
+      } catch (e) {
+        if (e.code === "EXDEV") {
+          await fs$1.cp(src2, dest, { recursive: true });
+          await fs$1.rm(src2, { recursive: true, force: true });
+        } else {
+          throw e;
+        }
+      }
+    }
+    return { success: true };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
 electron.ipcMain.handle("create-folder", async (_event, folderPath) => {
   try {
     await fs$1.mkdir(folderPath, { recursive: true });

@@ -27,6 +27,8 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   getUserPaths: () => electron.ipcRenderer.invoke("get-user-paths"),
   getLibraryFiles: (type) => electron.ipcRenderer.invoke("get-library-files", type),
   getFileIcon: (path) => electron.ipcRenderer.invoke("get-file-icon", path),
+  copyItems: (sourcePaths, destDir) => electron.ipcRenderer.invoke("copy-items", sourcePaths, destDir),
+  moveItems: (sourcePaths, destDir) => electron.ipcRenderer.invoke("move-items", sourcePaths, destDir),
   onMainMessage: (callback) => electron.ipcRenderer.on("main-process-message", (_event, value) => callback(value))
 });
 console.log("Preload script loaded with advanced stats support");
