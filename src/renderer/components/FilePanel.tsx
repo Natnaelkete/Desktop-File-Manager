@@ -1,4 +1,11 @@
-import React, { useEffect, useState, memo, useMemo, useCallback } from "react";
+import React, {
+  useEffect,
+  useState,
+  memo,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
 import {
   Folder,
   File,
@@ -14,9 +21,20 @@ import {
   Film,
   SortAsc,
   SortDesc,
+  Terminal,
+  Plus,
+  Layers,
+  Grid,
+  Copy,
+  Scissors,
+  Clipboard,
+  Trash2,
+  Info,
+  Type as TypeIcon,
+  RefreshCw,
 } from "lucide-react";
 import VideoThumbnail from "./VideoThumbnail";
-import ContextMenu from "./ContextMenu";
+import ContextMenu, { ContextMenuItem } from "./ContextMenu";
 import { FileItem, useStore } from "../stores/store";
 import PropertiesModal from "./PropertiesModal";
 import { useFileBrowser } from "../hooks/useFileBrowser";
@@ -49,6 +67,7 @@ const FileRow = memo(
       formatSize,
       isLibraryView,
       handleDragStart,
+      handleContextMenu,
     } = data;
     const file = files[index];
     if (!file) return null;
@@ -57,6 +76,7 @@ const FileRow = memo(
       <div
         style={style}
         onClick={(e) => handleFileClick(e, file)}
+        onContextMenu={(e) => handleContextMenu(e, file)}
         onDoubleClick={() => handleDoubleClick(file)}
         className={clsx(
           "flex items-center hover:bg-primary-50 dark:hover:bg-primary-900/10 cursor-default group border-b border-slate-50 dark:border-slate-800/50 px-4",
@@ -141,13 +161,80 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
   );
   const { refresh } = useFileBrowser(side, activeTabId);
 
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [menuPos, setMenuPos] = useState<{
+    x: number;
+    y: number;
+    type?: "empty" | "file";
+  } | null>(null);
   const [showBatchRename, setShowBatchRename] = useState(false);
   const [renameItem, setRenameItem] = useState<{
     path: string;
     name: string;
   } | null>(null);
   const [propertiesFile, setPropertiesFile] = useState<FileItem | null>(null);
+  const listRef = useRef<List>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+
+  const filteredFiles = useMemo(() => {
+    // Safety check - tab might be undefined during render cycle
+    if (!tab) return [];
+
+    let list = tab.files.filter(
+      (f: FileItem) => showHidden || !f.name.startsWith("."),
+    );
+
+    list.sort((a: FileItem, b: FileItem) => {
+      // Always put directories first
+      if (a.isDirectory && !b.isDirectory) return -1;
+      if (!a.isDirectory && b.isDirectory) return 1;
+
+      let comparison = 0;
+      switch (sortBy) {
+        case "size":
+          comparison = a.size - b.size;
+          break;
+        case "date":
+          comparison = a.modifiedAt - b.modifiedAt;
+          break;
+        case "type":
+          const extA = a.name.split(".").pop()?.toLowerCase() || "";
+          const extB = b.name.split(".").pop()?.toLowerCase() || "";
+          comparison = extA.localeCompare(extB);
+          break;
+        case "name":
+        default:
+          comparison = a.name.localeCompare(b.name);
+      }
+
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+
+    return list;
+  }, [tab?.files, showHidden, sortBy, sortOrder]);
+
+  // Scroll to target effect
+  useEffect(() => {
+    if (scrollTarget && filteredFiles.length > 0) {
+      const index = filteredFiles.findIndex(
+        (f: FileItem) => f.path === scrollTarget,
+      );
+      if (index !== -1) {
+        if (viewMode === "list" && listRef.current) {
+          listRef.current.scrollToItem(index, "center");
+        } else if (viewMode === "grid" && containerRef.current) {
+          // Find element in grid within this container
+          const element = containerRef.current.querySelector(
+            `[data-path="${scrollTarget.replace(/\\/g, "\\\\")}"]`,
+          );
+          if (element) {
+            element.scrollIntoView({ block: "center", behavior: "smooth" });
+          }
+        }
+        setScrollTarget(null);
+      }
+    }
+  }, [filteredFiles, scrollTarget, viewMode]);
 
   useEffect(() => {
     if (tab?.path) {
@@ -159,13 +246,167 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    setMenuPos({ x: e.clientX, y: e.clientY });
+    setMenuPos({ x: e.clientX, y: e.clientY, type: "empty" });
   };
 
+  const handleItemContextMenu = useCallback(
+    (e: React.MouseEvent, file: FileItem) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!selection.includes(file.path)) {
+        setSelection(side, [file.path]);
+      }
+      setMenuPos({ x: e.clientX, y: e.clientY, type: "file" });
+    },
+    [selection, side, setSelection],
+  );
+
+  const getMenuItems = useCallback(() => {
+    if (menuPos?.type === "file") {
+      return [
+        { label: "Open", icon: ChevronRight, action: "open" },
+        { separator: true },
+        { label: "Cut", icon: Scissors, action: "cut" },
+        { label: "Copy", icon: Copy, action: "copy" },
+        { label: "Paste", icon: Clipboard, action: "paste" },
+        { label: "Rename", icon: TypeIcon, action: "rename" },
+        { separator: true },
+        {
+          label: "Delete",
+          icon: Trash2,
+          action: "delete",
+          color: "text-red-500",
+        },
+        { separator: true },
+        { label: "Properties", icon: Info, action: "properties" },
+      ] as ContextMenuItem[];
+    } else {
+      return [
+        {
+          label: "View",
+          icon: LayoutGrid,
+          submenu: [
+            { label: "Extra Large Icons", action: "view-xl" },
+            { label: "Large Icons", action: "view-large" },
+            { label: "Medium Icons", action: "view-medium" },
+            { label: "Small Icons", action: "view-small" },
+            { separator: true },
+            { label: "List", action: "view-list" },
+            { label: "Details", action: "view-details" },
+          ],
+        },
+        {
+          label: "Sort by",
+          icon: ArrowUpDown,
+          submenu: [
+            { label: "Name", action: "sort-name" },
+            { label: "Size", action: "sort-size" },
+            { label: "Date modified", action: "sort-date" },
+            { separator: true },
+            { label: "Ascending", action: "sort-asc" },
+            { label: "Descending", action: "sort-desc" },
+          ],
+        },
+        { separator: true },
+        {
+          label: "New",
+          icon: Plus,
+          submenu: [
+            { label: "Folder", icon: Folder, action: "new-folder" },
+            { label: "Text Document", icon: File, action: "new-text" },
+          ],
+        },
+        { separator: true },
+        { label: "Refresh", icon: RefreshCw, action: "refresh" },
+        { separator: true },
+        { label: "Open in Terminal", icon: Terminal, action: "open-terminal" },
+        { label: "Properties", icon: Info, action: "properties-folder" },
+      ] as ContextMenuItem[];
+    }
+  }, [menuPos?.type]);
+
   const handleAction = async (action: string) => {
+    // View Actions
+    if (action.startsWith("view-")) {
+      const mode = action.replace("view-", "");
+      if (["xl", "large", "medium", "small"].includes(mode)) {
+        if (side === "left") setLeftViewMode("grid");
+        else setRightViewMode("grid");
+        setGridSize(side, mode as any);
+      } else if (mode === "list" || mode === "details") {
+        if (side === "left") setLeftViewMode("list");
+        else setRightViewMode("list");
+      }
+      setMenuPos(null);
+      return;
+    }
+
+    // Sort Actions
+    if (action.startsWith("sort-")) {
+      const sort = action.replace("sort-", "");
+      if (["name", "size", "date"].includes(sort)) {
+        setSortBy(side, sort === "date" ? "date" : (sort as any));
+      } else if (["asc", "desc"].includes(sort)) {
+        setSortOrder(side, sort as any);
+      }
+      setMenuPos(null);
+      return;
+    }
+
+    if (action === "refresh") {
+      refresh(tab.path);
+      setMenuPos(null);
+      return;
+    }
+
+    if (action === "new-folder") {
+      let name = "New folder";
+      let counter = 2;
+      while (tab.files.some((f: FileItem) => f.name === name)) {
+        name = `New folder (${counter++})`;
+      }
+
+      const separator = tab.path.endsWith("\\") ? "" : "\\";
+      const newPath = `${tab.path}${separator}${name}`;
+
+      const res = await (window as any).electronAPI.createFolder(newPath);
+      if (res && res.error) {
+        alert("Error creating folder: " + res.error);
+        setMenuPos(null);
+        return;
+      }
+
+      await refresh(tab.path);
+
+      // Wait a tick to ensure store update has propagated to filteredFiles
+      setTimeout(() => {
+        setSelection(side, [newPath]);
+        setScrollTarget(newPath);
+      }, 50);
+
+      setMenuPos(null);
+      return;
+    }
+
+    if (action === "open") {
+      if (selection.length > 0) {
+        const file = tab.files.find((f: FileItem) => f.path === selection[0]);
+        if (file) handleDoubleClick(file);
+      }
+      setMenuPos(null);
+      return;
+    }
+
     if (action === "delete" && selection.length > 0) {
       await (window as any).electronAPI.deleteItems(selection);
       refresh(tab.path);
+      setSelection(side, []);
+    } else if (action === "delete-permanent" && selection.length > 0) {
+      if (confirm("Are you sure you want to permanently delete these items?")) {
+        await (window as any).electronAPI.deleteItemsPermanently(selection);
+        refresh(tab.path);
+        setSelection(side, []);
+      }
     } else if (action === "hash-md5" && selection.length === 1) {
       const result = await (window as any).electronAPI.getFileHash(
         selection[0],
@@ -378,42 +619,6 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   }, []);
 
-  const filteredFiles = useMemo(() => {
-    let list = tab.files.filter(
-      (f: FileItem) => showHidden || !f.name.startsWith("."),
-    );
-
-    list.sort((a: FileItem, b: FileItem) => {
-      // Always put directories first
-      if (a.isDirectory && !b.isDirectory) return -1;
-      if (!a.isDirectory && b.isDirectory) return 1;
-
-      let comparison = 0;
-      switch (sortBy) {
-        case "size":
-          comparison = a.size - b.size;
-          break;
-        case "date":
-          comparison = a.modifiedAt - b.modifiedAt;
-          break;
-        case "type":
-          const extA = a.name.split(".").pop()?.toLowerCase() || "";
-          const extB = b.name.split(".").pop()?.toLowerCase() || "";
-          comparison = extA.localeCompare(extB);
-          break;
-        default:
-          comparison = a.name.localeCompare(b.name, undefined, {
-            numeric: true,
-            sensitivity: "base",
-          });
-      }
-
-      return sortOrder === "asc" ? comparison : -comparison;
-    });
-
-    return list;
-  }, [tab.files, showHidden, sortBy, sortOrder]);
-
   return (
     <div
       onClick={() => {
@@ -553,6 +758,14 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
           <div className="w-px h-4 bg-slate-200 dark:bg-slate-800 mx-1" />
 
           <div
+            onClick={() => handleAction("new-folder")}
+            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer text-slate-400 hover:text-primary-500"
+            title="New Folder"
+          >
+            <Plus size={16} />
+          </div>
+
+          <div
             onClick={toggleHidden}
             className={clsx(
               "p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer",
@@ -586,6 +799,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
                   <AutoSizerAny>
                     {({ height, width }: { height: number; width: number }) => (
                       <List
+                        ref={listRef}
                         height={height || 600}
                         itemCount={filteredFiles.length}
                         itemSize={44}
@@ -600,6 +814,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
                           formatSize,
                           isLibraryView: tab.path.startsWith("library://"),
                           handleDragStart,
+                          handleContextMenu: handleItemContextMenu,
                         }}
                       >
                         {FileRow}
@@ -612,6 +827,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
           </div>
         ) : (
           <div
+            ref={containerRef}
             className={clsx(
               "flex-1 overflow-y-auto p-4 content-start gap-4 grid h-full scrollbar-thin",
               gridSize === "small" &&
@@ -653,9 +869,11 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
               return (
                 <div
                   key={file.path}
+                  data-path={file.path}
                   draggable
                   onDragStart={(e) => handleDragStart(e, file)}
                   onClick={(e) => handleFileClick(e, file)}
+                  onContextMenu={(e) => handleItemContextMenu(e, file)}
                   onDoubleClick={() => handleDoubleClick(file)}
                   className={clsx(
                     "flex flex-col items-center p-2 rounded-xl border border-transparent transition-all cursor-default group",
@@ -742,7 +960,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
             <div className="flex flex-col items-center gap-2">
               <Loader2 className="animate-spin text-primary-500" size={32} />
               <p className="text-xs font-bold text-slate-500 animate-pulse">
-                Scanning Your PC...
+                Loading...
               </p>
             </div>
           </div>
@@ -759,6 +977,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         <ContextMenu
           x={menuPos.x}
           y={menuPos.y}
+          items={getMenuItems()}
           onClose={() => setMenuPos(null)}
           onAction={handleAction}
         />
@@ -820,6 +1039,30 @@ function KeyboardShortcuts({
     const handleKeyDown = (e: KeyboardEvent) => {
       const currentActiveSide = useStore.getState().activeSide;
       if (currentActiveSide !== side) return;
+
+      // Handle Delete (Normal and Shift+Delete)
+      if (e.key === "Delete") {
+        if (selection.length > 0) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleAction("delete-permanent");
+          } else {
+            handleAction("delete");
+          }
+        }
+        return;
+      }
+
+      // Handle Ctrl + Shift + N (New Folder)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "n"
+      ) {
+        e.preventDefault();
+        handleAction("new-folder");
+        return;
+      }
 
       if (e.ctrlKey || e.metaKey) {
         switch (e.key.toLowerCase()) {

@@ -3405,7 +3405,16 @@ const regList = (keys) => new Promise((resolve, reject) => {
   });
 });
 electron.protocol.registerSchemesAsPrivileged([
-  { scheme: "local-resource", privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true, stream: true } }
+  {
+    scheme: "local-resource",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      bypassCSP: true,
+      stream: true
+    }
+  }
 ]);
 const lastScanCache = {
   duplicateGroups: []
@@ -3417,14 +3426,17 @@ electron.ipcMain.handle("read-file", async (_event, filePath) => {
     return { error: error.message };
   }
 });
-electron.ipcMain.handle("write-file", async (_event, filePath, content) => {
-  try {
-    await fs$1.writeFile(filePath, content, "utf8");
-    return { success: true };
-  } catch (error) {
-    return { error: error.message };
+electron.ipcMain.handle(
+  "write-file",
+  async (_event, filePath, content) => {
+    try {
+      await fs$1.writeFile(filePath, content, "utf8");
+      return { success: true };
+    } catch (error) {
+      return { error: error.message };
+    }
   }
-});
+);
 const execAsync = node_util.promisify(node_child_process.exec);
 const __dirname$1 = path.dirname(node_url.fileURLToPath(typeof document === "undefined" ? require("url").pathToFileURL(__filename).href : _documentCurrentScript && _documentCurrentScript.tagName.toUpperCase() === "SCRIPT" && _documentCurrentScript.src || new URL("main.cjs", document.baseURI).href));
 process.env.DIST = path.join(__dirname$1, "../dist");
@@ -3563,7 +3575,9 @@ electron.ipcMain.handle("list-dir", async (_event, dirPath) => {
 electron.ipcMain.handle("get-drives", async () => {
   try {
     if (process.platform === "win32") {
-      const { stdout } = await execAsync('powershell "Get-PSDrive -PSProvider FileSystem | Select-Object Name, Used, Free"');
+      const { stdout } = await execAsync(
+        'powershell "Get-PSDrive -PSProvider FileSystem | Select-Object Name, Used, Free"'
+      );
       const lines = stdout.trim().split("\n").slice(2);
       return lines.map((line) => {
         const [name, used, free] = line.trim().split(/\s+/);
@@ -3597,64 +3611,104 @@ electron.ipcMain.handle("get-user-paths", async () => {
 });
 electron.ipcMain.handle("delete-items", async (_event, paths) => {
   try {
+    const parentDirs = /* @__PURE__ */ new Set();
     for (const p of paths) {
       await electron.shell.trashItem(p);
+      parentDirs.add(path.dirname(p));
+    }
+    for (const dir of parentDirs) {
+      dirCache.delete(dir);
     }
     return { success: true };
   } catch (error) {
     return { error: error.message };
   }
 });
-electron.ipcMain.handle("rename-item", async (_event, oldPath, newPath) => {
+electron.ipcMain.handle("delete-items-permanently", async (_event, paths) => {
   try {
-    await fs$1.rename(oldPath, newPath);
-    return { success: true };
-  } catch (error) {
-    return { error: error.message };
-  }
-});
-electron.ipcMain.handle("copy-items", async (_event, sourcePaths, destDir) => {
-  try {
-    for (const src2 of sourcePaths) {
-      const fileName = path.basename(src2);
-      const dest = path.join(destDir, fileName);
-      if (fs_native.existsSync(dest)) {
-        return { error: "ALREADY_EXISTS", details: fileName };
-      }
-      await fs$1.cp(src2, dest, { recursive: true });
+    const parentDirs = /* @__PURE__ */ new Set();
+    for (const p of paths) {
+      await fs$1.rm(p, { recursive: true, force: true });
+      parentDirs.add(path.dirname(p));
+    }
+    for (const dir of parentDirs) {
+      dirCache.delete(dir);
     }
     return { success: true };
   } catch (error) {
     return { error: error.message };
   }
 });
-electron.ipcMain.handle("move-items", async (_event, sourcePaths, destDir) => {
-  try {
-    for (const src2 of sourcePaths) {
-      const fileName = path.basename(src2);
-      const dest = path.join(destDir, fileName);
-      if (fs_native.existsSync(dest)) {
-        return { error: "ALREADY_EXISTS", details: fileName };
+electron.ipcMain.handle(
+  "rename-item",
+  async (_event, oldPath, newPath) => {
+    try {
+      await fs$1.rename(oldPath, newPath);
+      dirCache.delete(path.dirname(oldPath));
+      dirCache.delete(path.dirname(newPath));
+      return { success: true };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+);
+electron.ipcMain.handle(
+  "copy-items",
+  async (_event, sourcePaths, destDir) => {
+    try {
+      for (const src2 of sourcePaths) {
+        const fileName = path.basename(src2);
+        const dest = path.join(destDir, fileName);
+        if (fs_native.existsSync(dest)) {
+          return { error: "ALREADY_EXISTS", details: fileName };
+        }
+        await fs$1.cp(src2, dest, { recursive: true });
       }
-      try {
-        await fs$1.rename(src2, dest);
-      } catch (e) {
-        if (e.code === "EXDEV") {
-          await fs$1.cp(src2, dest, { recursive: true });
-          await fs$1.rm(src2, { recursive: true, force: true });
-        } else {
-          throw e;
+      dirCache.delete(destDir);
+      return { success: true };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+);
+electron.ipcMain.handle(
+  "move-items",
+  async (_event, sourcePaths, destDir) => {
+    try {
+      const sourceParents = /* @__PURE__ */ new Set();
+      for (const src2 of sourcePaths) {
+        const fileName = path.basename(src2);
+        const dest = path.join(destDir, fileName);
+        if (fs_native.existsSync(dest)) {
+          return { error: "ALREADY_EXISTS", details: fileName };
+        }
+        try {
+          await fs$1.rename(src2, dest);
+          sourceParents.add(path.dirname(src2));
+        } catch (e) {
+          if (e.code === "EXDEV") {
+            await fs$1.cp(src2, dest, { recursive: true });
+            await fs$1.rm(src2, { recursive: true, force: true });
+            sourceParents.add(path.dirname(src2));
+          } else {
+            throw e;
+          }
         }
       }
+      dirCache.delete(destDir);
+      for (const dir of sourceParents) {
+        dirCache.delete(dir);
+      }
+      return { success: true };
+    } catch (error) {
+      return { error: error.message };
     }
-    return { success: true };
-  } catch (error) {
-    return { error: error.message };
   }
-});
+);
 electron.ipcMain.handle("create-folder", async (_event, folderPath) => {
   try {
     await fs$1.mkdir(folderPath, { recursive: true });
+    dirCache.delete(path.dirname(folderPath));
     return { success: true };
   } catch (error) {
     return { error: error.message };
@@ -3668,71 +3722,93 @@ electron.ipcMain.handle("open-path", async (_event, filePath) => {
     return { error: error.message };
   }
 });
-electron.ipcMain.handle("search-files", async (_event, dirPath, query) => {
-  try {
-    const results = [];
-    const walk = async (currentDir) => {
-      const files = await fs$1.readdir(currentDir, { withFileTypes: true });
-      for (const file of files) {
-        const fullPath = path.join(currentDir, file.name);
-        if (file.name.toLowerCase().includes(query.toLowerCase())) {
-          try {
-            const s = await fs$1.stat(fullPath);
-            results.push({
-              name: file.name,
-              path: fullPath,
-              isDirectory: file.isDirectory(),
-              size: s.size,
-              modifiedAt: s.mtime.getTime(),
-              createdAt: s.birthtime.getTime()
-            });
-          } catch (e) {
-          }
-        }
-        if (file.isDirectory() && results.length < 50) {
-          try {
-            await walk(fullPath);
-          } catch (e) {
-          }
-        }
-        if (results.length >= 50) break;
-      }
-    };
-    await walk(dirPath);
-    return results;
-  } catch (error) {
-    return { error: error.message };
-  }
-});
-electron.ipcMain.handle("get-file-hash", async (_event, filePath, algorithm) => {
-  return new Promise((resolve) => {
+electron.ipcMain.handle(
+  "search-files",
+  async (_event, dirPath, query) => {
     try {
-      console.log(`Hashing file: ${filePath} (${algorithm})`);
-      const hash = crypto.createHash(algorithm);
-      const stream = fs_native.createReadStream(filePath);
-      stream.on("data", (data) => hash.update(data));
-      stream.on("end", () => {
-        const result = hash.digest("hex");
-        console.log(`Hash success: ${result.substring(0, 8)}...`);
-        resolve(result);
-      });
-      stream.on("error", (err) => {
-        console.error(`Hash stream error: ${err.message}`);
-        resolve({ error: err.message });
-      });
+      const results = [];
+      const walk = async (currentDir) => {
+        const files = await fs$1.readdir(currentDir, { withFileTypes: true });
+        for (const file of files) {
+          const fullPath = path.join(currentDir, file.name);
+          if (file.name.toLowerCase().includes(query.toLowerCase())) {
+            try {
+              const s = await fs$1.stat(fullPath);
+              results.push({
+                name: file.name,
+                path: fullPath,
+                isDirectory: file.isDirectory(),
+                size: s.size,
+                modifiedAt: s.mtime.getTime(),
+                createdAt: s.birthtime.getTime()
+              });
+            } catch (e) {
+            }
+          }
+          if (file.isDirectory() && results.length < 50) {
+            try {
+              await walk(fullPath);
+            } catch (e) {
+            }
+          }
+          if (results.length >= 50) break;
+        }
+      };
+      await walk(dirPath);
+      return results;
     } catch (error) {
-      console.error(`Hash catch error: ${error.message}`);
-      resolve({ error: error.message });
+      return { error: error.message };
     }
-  });
-});
+  }
+);
+electron.ipcMain.handle(
+  "get-file-hash",
+  async (_event, filePath, algorithm) => {
+    return new Promise((resolve) => {
+      try {
+        console.log(`Hashing file: ${filePath} (${algorithm})`);
+        const hash = crypto.createHash(algorithm);
+        const stream = fs_native.createReadStream(filePath);
+        stream.on("data", (data) => hash.update(data));
+        stream.on("end", () => {
+          const result = hash.digest("hex");
+          console.log(`Hash success: ${result.substring(0, 8)}...`);
+          resolve(result);
+        });
+        stream.on("error", (err) => {
+          console.error(`Hash stream error: ${err.message}`);
+          resolve({ error: err.message });
+        });
+      } catch (error) {
+        console.error(`Hash catch error: ${error.message}`);
+        resolve({ error: error.message });
+      }
+    });
+  }
+);
 electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
   try {
     const categories = {
-      images: { size: 0, count: 0, exts: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"] },
-      videos: { size: 0, count: 0, exts: ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm"] },
-      audio: { size: 0, count: 0, exts: ["mp3", "wav", "flac", "aac", "ogg", "m4a"] },
-      docs: { size: 0, count: 0, exts: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md"] },
+      images: {
+        size: 0,
+        count: 0,
+        exts: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"]
+      },
+      videos: {
+        size: 0,
+        count: 0,
+        exts: ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm"]
+      },
+      audio: {
+        size: 0,
+        count: 0,
+        exts: ["mp3", "wav", "flac", "aac", "ogg", "m4a"]
+      },
+      docs: {
+        size: 0,
+        count: 0,
+        exts: ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md"]
+      },
       apps: { size: 0, count: 0, exts: ["exe", "msi", "appx", "dmg"] },
       others: { size: 0, count: 0, exts: [] }
     };
@@ -3743,7 +3819,7 @@ electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
     const now = Date.now();
     const oneDay = 24 * 60 * 60 * 1e3;
     const scan = async (d, depth = 0) => {
-      if (depth > 8) return;
+      if (depth > 6) return;
       try {
         const entries = await fs$1.readdir(d, { withFileTypes: true });
         for (const entry of entries) {
@@ -3776,13 +3852,25 @@ electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
                 hashes.get(dupeKey).push(fullPath);
               }
               if (s.size > 100 * 1024 * 1024) {
-                largeFiles.push({ name: entry.name, path: fullPath, size: s.size });
+                largeFiles.push({
+                  name: entry.name,
+                  path: fullPath,
+                  size: s.size
+                });
               }
               if (now - s.mtime.getTime() < oneDay) {
-                recentFiles.push({ name: entry.name, path: fullPath, modifiedAt: s.mtime.getTime() });
+                recentFiles.push({
+                  name: entry.name,
+                  path: fullPath,
+                  modifiedAt: s.mtime.getTime()
+                });
               }
               if (ext === "tmp" || ext === "log" || ext === "cache" || s.size === 0) {
-                redundantFiles.push({ name: entry.name, path: fullPath, size: s.size });
+                redundantFiles.push({
+                  name: entry.name,
+                  path: fullPath,
+                  size: s.size
+                });
               }
             } catch (e) {
             }
@@ -3792,9 +3880,14 @@ electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
       }
     };
     await scan(dirPath);
-    const duplicateGroups = Array.from(hashes.values()).filter((paths) => paths.length > 1);
+    const duplicateGroups = Array.from(hashes.values()).filter(
+      (paths) => paths.length > 1
+    );
     lastScanCache.duplicateGroups = duplicateGroups;
-    const duplicateCount = duplicateGroups.reduce((acc, curr) => acc + curr.length, 0);
+    const duplicateCount = duplicateGroups.reduce(
+      (acc, curr) => acc + curr.length,
+      0
+    );
     const duplicateSize = duplicateGroups.reduce((acc, curr) => {
       const stats = fs_native.statSync(curr[0]);
       return acc + stats.size * (curr.length - 1);
@@ -3818,14 +3911,17 @@ electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
 electron.ipcMain.handle("reveal-in-explorer", (_event, filePath) => {
   electron.shell.showItemInFolder(filePath);
 });
-electron.ipcMain.handle("get-duplicates-paginated", (_event, page, pageSize) => {
-  const start = page * pageSize;
-  const end = start + pageSize;
-  return {
-    groups: lastScanCache.duplicateGroups.slice(start, end),
-    total: lastScanCache.duplicateGroups.length
-  };
-});
+electron.ipcMain.handle(
+  "get-duplicates-paginated",
+  (_event, page, pageSize) => {
+    const start = page * pageSize;
+    const end = start + pageSize;
+    return {
+      groups: lastScanCache.duplicateGroups.slice(start, end),
+      total: lastScanCache.duplicateGroups.length
+    };
+  }
+);
 const getInstalledAppsInternal = async () => {
   var _a;
   const keys = [
@@ -3844,32 +3940,34 @@ const getInstalledAppsInternal = async () => {
       for (let i = 0; i < fullSubkeys.length; i += chunkSize) {
         chunks.push(fullSubkeys.slice(i, i + chunkSize));
       }
-      const chunkResults = await Promise.all(chunks.map(async (chunk) => {
-        var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j;
-        try {
-          const details = await regList(chunk);
-          const chunkApps = [];
-          for (const sk of chunk) {
-            const data = (_a2 = details[sk]) == null ? void 0 : _a2.values;
-            if (data && (data.DisplayName || data.UninstallString)) {
-              chunkApps.push({
-                name: ((_b = data.DisplayName) == null ? void 0 : _b.value) || sk.split("\\").pop(),
-                version: ((_c = data.DisplayVersion) == null ? void 0 : _c.value) || "Unknown",
-                publisher: ((_d = data.Publisher) == null ? void 0 : _d.value) || "Unknown",
-                uninstallString: ((_e = data.UninstallString) == null ? void 0 : _e.value) || ((_f = data.QuietUninstallString) == null ? void 0 : _f.value),
-                installLocation: (_g = data.InstallLocation) == null ? void 0 : _g.value,
-                icon: (_h = data.DisplayIcon) == null ? void 0 : _h.value,
-                size: ((_i = data.EstimatedSize) == null ? void 0 : _i.value) ? data.EstimatedSize.value * 1024 : 0,
-                installDate: (_j = data.InstallDate) == null ? void 0 : _j.value,
-                registryPath: sk
-              });
+      const chunkResults = await Promise.all(
+        chunks.map(async (chunk) => {
+          var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+          try {
+            const details = await regList(chunk);
+            const chunkApps = [];
+            for (const sk of chunk) {
+              const data = (_a2 = details[sk]) == null ? void 0 : _a2.values;
+              if (data && (data.DisplayName || data.UninstallString)) {
+                chunkApps.push({
+                  name: ((_b = data.DisplayName) == null ? void 0 : _b.value) || sk.split("\\").pop(),
+                  version: ((_c = data.DisplayVersion) == null ? void 0 : _c.value) || "Unknown",
+                  publisher: ((_d = data.Publisher) == null ? void 0 : _d.value) || "Unknown",
+                  uninstallString: ((_e = data.UninstallString) == null ? void 0 : _e.value) || ((_f = data.QuietUninstallString) == null ? void 0 : _f.value),
+                  installLocation: (_g = data.InstallLocation) == null ? void 0 : _g.value,
+                  icon: (_h = data.DisplayIcon) == null ? void 0 : _h.value,
+                  size: ((_i = data.EstimatedSize) == null ? void 0 : _i.value) ? data.EstimatedSize.value * 1024 : 0,
+                  installDate: (_j = data.InstallDate) == null ? void 0 : _j.value,
+                  registryPath: sk
+                });
+              }
             }
+            return chunkApps;
+          } catch (e) {
+            return [];
           }
-          return chunkApps;
-        } catch (e) {
-          return [];
-        }
-      }));
+        })
+      );
       for (const chunkApps of chunkResults) apps.push(...chunkApps);
     }
     return apps.sort((a, b) => a.name.localeCompare(b.name));
@@ -3890,7 +3988,10 @@ electron.ipcMain.handle("run-uninstaller", async (_event, uninstallString) => {
 });
 const findLeftoversInternal = async (appName, installLocation) => {
   var _a;
-  const leftovers = { files: [], registry: [] };
+  const leftovers = {
+    files: [],
+    registry: []
+  };
   const searchDirs = [
     process.env.APPDATA,
     process.env.LOCALAPPDATA,
@@ -3900,7 +4001,9 @@ const findLeftoversInternal = async (appName, installLocation) => {
   for (const dir of searchDirs) {
     try {
       const entries = await fs$1.readdir(dir);
-      const matches = entries.filter((e) => e.toLowerCase().includes(appName.toLowerCase()));
+      const matches = entries.filter(
+        (e) => e.toLowerCase().includes(appName.toLowerCase())
+      );
       for (const match of matches) {
         leftovers.files.push(path.join(dir, match));
       }
@@ -3926,17 +4029,22 @@ const findLeftoversInternal = async (appName, installLocation) => {
   }
   return leftovers;
 };
-electron.ipcMain.handle("find-app-leftovers", async (_event, appName, installLocation) => {
-  return await findLeftoversInternal(appName, installLocation);
-});
+electron.ipcMain.handle(
+  "find-app-leftovers",
+  async (_event, appName, installLocation) => {
+    return await findLeftoversInternal(appName, installLocation);
+  }
+);
 electron.ipcMain.handle("find-orphan-leftovers", async () => {
   const leftovers = [];
   try {
     const apps = await getInstalledAppsInternal();
-    const installedLocations = new Set(apps.map((a) => {
-      var _a;
-      return (_a = a.installLocation) == null ? void 0 : _a.toLowerCase();
-    }).filter(Boolean));
+    const installedLocations = new Set(
+      apps.map((a) => {
+        var _a;
+        return (_a = a.installLocation) == null ? void 0 : _a.toLowerCase();
+      }).filter(Boolean)
+    );
     const installedNames = new Set(apps.map((a) => a.name.toLowerCase()));
     const searchDirs = [
       "C:\\Program Files",
@@ -3950,7 +4058,13 @@ electron.ipcMain.handle("find-orphan-leftovers", async () => {
         for (const entry of entries) {
           const fullPath = path.join(dir, entry);
           const entryLower = entry.toLowerCase();
-          const commonDirs = ["microsoft", "windows", "common files", "desktop", "temp"];
+          const commonDirs = [
+            "microsoft",
+            "windows",
+            "common files",
+            "desktop",
+            "temp"
+          ];
           if (commonDirs.includes(entryLower)) continue;
           let isKnown = false;
           if (installedLocations.has(fullPath.toLowerCase())) isKnown = true;
@@ -3970,113 +4084,132 @@ electron.ipcMain.handle("find-orphan-leftovers", async () => {
     return { error: "Orphan scan failed" };
   }
 });
-electron.ipcMain.handle("get-library-files", async (_event, type) => {
-  const exts = {
-    images: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"],
-    videos: ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp", "ogv"],
-    music: ["mp3", "wav", "flac", "aac", "ogg", "m4a", "wma", "aiff", "opus"]
-  };
-  const activeType = type || "images";
-  const targetExts = new Set(exts[activeType] || []);
-  const results = [];
-  const seenPaths = /* @__PURE__ */ new Set();
-  const userPaths = [
-    electron.app.getPath("pictures"),
-    electron.app.getPath("videos"),
-    electron.app.getPath("music"),
-    electron.app.getPath("desktop"),
-    electron.app.getPath("documents"),
-    electron.app.getPath("downloads")
-  ].map((p) => path.normalize(p));
-  const libraryPaths = [...userPaths];
-  try {
-    const drives = await new Promise((resolve) => {
-      node_child_process.exec("wmic logicaldisk get name", (error, stdout) => {
-        if (error) resolve([]);
-        else {
-          const names = stdout.split("\n").map((s) => s.trim()).filter((s) => s && s.length === 2 && s.endsWith(":")).map((s) => path.normalize(s + "\\"));
-          resolve(names);
-        }
-      });
-    });
-    for (const drive of drives) {
-      if (!libraryPaths.includes(drive)) {
-        libraryPaths.push(drive);
-      }
-    }
-  } catch (e) {
-  }
-  const scan = async (dir, depth = 0, maxDepth = 5) => {
-    var _a;
-    if (depth > maxDepth) return;
+electron.ipcMain.handle(
+  "get-library-files",
+  async (_event, type) => {
+    const exts = {
+      images: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"],
+      videos: [
+        "mp4",
+        "mkv",
+        "avi",
+        "mov",
+        "wmv",
+        "flv",
+        "webm",
+        "m4v",
+        "mpg",
+        "mpeg",
+        "3gp",
+        "ogv"
+      ],
+      music: ["mp3", "wav", "flac", "aac", "ogg", "m4a", "wma", "aiff", "opus"]
+    };
+    const activeType = type || "images";
+    const targetExts = new Set(exts[activeType] || []);
+    const results = [];
+    const seenPaths = /* @__PURE__ */ new Set();
+    const userPaths = [
+      electron.app.getPath("pictures"),
+      electron.app.getPath("videos"),
+      electron.app.getPath("music"),
+      electron.app.getPath("desktop"),
+      electron.app.getPath("documents"),
+      electron.app.getPath("downloads")
+    ].map((p) => path.normalize(p));
+    const libraryPaths = [...userPaths];
     try {
-      const files = await fs$1.readdir(dir, { withFileTypes: true });
-      for (const file of files) {
-        try {
-          const fullPath = path.join(dir, file.name);
-          const normalizedPath = fullPath.toLowerCase().replace(/[/\\]+$/, "");
-          if (seenPaths.has(normalizedPath)) continue;
-          seenPaths.add(normalizedPath);
-          if (file.isDirectory()) {
-            const name = file.name.toLowerCase();
-            if (file.name.startsWith(".") || name === "windows" || name === "program files" || name === "program files (x86)" || name === "programdata" || name === "appdata" || name === "node_modules" || name === "temp" || name === "cache" || name === "$recycle.bin" || name === "system volume information" || name === "microsoft") {
-              continue;
-            }
-            await scan(fullPath, depth + 1, maxDepth);
-          } else {
-            const ext = ((_a = file.name.split(".").pop()) == null ? void 0 : _a.toLowerCase()) || "";
-            if (targetExts.has(ext)) {
-              try {
-                const s = fs_native.statSync(fullPath);
-                results.push({
-                  name: file.name,
-                  path: fullPath,
-                  isDirectory: false,
-                  size: s.size,
-                  modifiedAt: s.mtime.getTime(),
-                  createdAt: s.birthtime.getTime(),
-                  parentPath: dir
-                });
-                if (results.length >= 1e4) return;
-              } catch (e) {
-              }
-            }
+      const drives = await new Promise((resolve) => {
+        node_child_process.exec("wmic logicaldisk get name", (error, stdout) => {
+          if (error) resolve([]);
+          else {
+            const names = stdout.split("\n").map((s) => s.trim()).filter((s) => s && s.length === 2 && s.endsWith(":")).map((s) => path.normalize(s + "\\"));
+            resolve(names);
           }
-        } catch (e) {
+        });
+      });
+      for (const drive of drives) {
+        if (!libraryPaths.includes(drive)) {
+          libraryPaths.push(drive);
         }
       }
     } catch (e) {
     }
-  };
-  const priorityPaths = [
-    electron.app.getPath("pictures"),
-    electron.app.getPath("videos"),
-    electron.app.getPath("music"),
-    electron.app.getPath("downloads"),
-    electron.app.getPath("desktop"),
-    electron.app.getPath("documents")
-  ].map((p) => path.normalize(p));
-  for (const p of priorityPaths) {
-    if (fs_native.existsSync(p)) {
-      await scan(p, 0, 8);
-    }
-  }
-  try {
-    const drives = await new Promise((resolve) => {
-      node_child_process.exec("wmic logicaldisk get name", (error, stdout) => {
-        if (error) resolve([]);
-        else resolve(stdout.split("\n").map((s) => s.trim()).filter((s) => s.length === 2 && s.endsWith(":")).map((s) => s + "\\"));
-      });
-    });
-    for (const drive of drives) {
-      if (fs_native.existsSync(drive)) {
-        await scan(drive, 0, 3);
+    const scan = async (dir, depth = 0, maxDepth = 5) => {
+      var _a;
+      if (depth > maxDepth) return;
+      try {
+        const files = await fs$1.readdir(dir, { withFileTypes: true });
+        for (const file of files) {
+          try {
+            const fullPath = path.join(dir, file.name);
+            const normalizedPath = fullPath.toLowerCase().replace(/[/\\]+$/, "");
+            if (seenPaths.has(normalizedPath)) continue;
+            seenPaths.add(normalizedPath);
+            if (file.isDirectory()) {
+              const name = file.name.toLowerCase();
+              if (file.name.startsWith(".") || name === "windows" || name === "program files" || name === "program files (x86)" || name === "programdata" || name === "appdata" || name === "node_modules" || name === "temp" || name === "cache" || name === "$recycle.bin" || name === "system volume information" || name === "microsoft") {
+                continue;
+              }
+              await scan(fullPath, depth + 1, maxDepth);
+            } else {
+              const ext = ((_a = file.name.split(".").pop()) == null ? void 0 : _a.toLowerCase()) || "";
+              if (targetExts.has(ext)) {
+                try {
+                  const s = fs_native.statSync(fullPath);
+                  results.push({
+                    name: file.name,
+                    path: fullPath,
+                    isDirectory: false,
+                    size: s.size,
+                    modifiedAt: s.mtime.getTime(),
+                    createdAt: s.birthtime.getTime(),
+                    parentPath: dir
+                  });
+                  if (results.length >= 1e4) return;
+                } catch (e) {
+                }
+              }
+            }
+          } catch (e) {
+          }
+        }
+      } catch (e) {
+      }
+    };
+    const priorityPaths = [
+      electron.app.getPath("pictures"),
+      electron.app.getPath("videos"),
+      electron.app.getPath("music"),
+      electron.app.getPath("downloads"),
+      electron.app.getPath("desktop"),
+      electron.app.getPath("documents")
+    ].map((p) => path.normalize(p));
+    for (const p of priorityPaths) {
+      if (fs_native.existsSync(p)) {
+        await scan(p, 0, 8);
       }
     }
-  } catch (e) {
+    try {
+      const drives = await new Promise((resolve) => {
+        node_child_process.exec("wmic logicaldisk get name", (error, stdout) => {
+          if (error) resolve([]);
+          else
+            resolve(
+              stdout.split("\n").map((s) => s.trim()).filter((s) => s.length === 2 && s.endsWith(":")).map((s) => s + "\\")
+            );
+        });
+      });
+      for (const drive of drives) {
+        if (fs_native.existsSync(drive)) {
+          await scan(drive, 0, 3);
+        }
+      }
+    } catch (e) {
+    }
+    return results;
   }
-  return results;
-});
+);
 electron.ipcMain.handle("get-uwp-apps", async () => {
   return new Promise((resolve) => {
     const psCommand = "Get-AppxPackage -PackageTypeFilter Main | Where-Object { $_.InstallLocation -ne $null } | Select-Object Name, PackageFullName, Version, Publisher, InstallLocation | ConvertTo-Json";
@@ -4092,14 +4225,16 @@ electron.ipcMain.handle("get-uwp-apps", async () => {
         }
         const apps = JSON.parse(stdout);
         const appsArray = Array.isArray(apps) ? apps : [apps];
-        resolve(appsArray.map((app2) => ({
-          name: app2.Name,
-          fullName: app2.PackageFullName,
-          version: app2.Version,
-          publisher: app2.Publisher,
-          installLocation: app2.InstallLocation,
-          isUWP: true
-        })));
+        resolve(
+          appsArray.map((app2) => ({
+            name: app2.Name,
+            fullName: app2.PackageFullName,
+            version: app2.Version,
+            publisher: app2.Publisher,
+            installLocation: app2.InstallLocation,
+            isUWP: true
+          }))
+        );
       } catch (e) {
         resolve({ error: "Failed to parse UWP apps: " + e.message });
       }
@@ -4108,28 +4243,37 @@ electron.ipcMain.handle("get-uwp-apps", async () => {
 });
 electron.ipcMain.handle("uninstall-uwp-app", async (_event, packageFullName) => {
   return new Promise((resolve) => {
-    node_child_process.exec(`powershell -Command "Remove-AppxPackage -Package ${packageFullName}"`, (error) => {
-      if (error) resolve({ error: error.message });
-      else resolve({ success: true });
-    });
+    node_child_process.exec(
+      `powershell -Command "Remove-AppxPackage -Package ${packageFullName}"`,
+      (error) => {
+        if (error) resolve({ error: error.message });
+        else resolve({ success: true });
+      }
+    );
   });
 });
-electron.ipcMain.handle("force-uninstall", async (_event, appName, installLocation) => {
-  return await findLeftoversInternal(appName, installLocation);
-});
-electron.ipcMain.handle("batch-rename", async (_event, paths, pattern, replacement) => {
-  try {
-    const results = [];
-    for (const oldPath of paths) {
-      const dir = path.dirname(oldPath);
-      const name = path.basename(oldPath);
-      const newName = name.replace(pattern, replacement);
-      const newPath = path.join(dir, newName);
-      await fs$1.rename(oldPath, newPath);
-      results.push({ oldPath, newPath });
-    }
-    return { success: true, results };
-  } catch (error) {
-    return { error: error.message };
+electron.ipcMain.handle(
+  "force-uninstall",
+  async (_event, appName, installLocation) => {
+    return await findLeftoversInternal(appName, installLocation);
   }
-});
+);
+electron.ipcMain.handle(
+  "batch-rename",
+  async (_event, paths, pattern, replacement) => {
+    try {
+      const results = [];
+      for (const oldPath of paths) {
+        const dir = path.dirname(oldPath);
+        const name = path.basename(oldPath);
+        const newName = name.replace(pattern, replacement);
+        const newPath = path.join(dir, newName);
+        await fs$1.rename(oldPath, newPath);
+        results.push({ oldPath, newPath });
+      }
+      return { success: true, results };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+);

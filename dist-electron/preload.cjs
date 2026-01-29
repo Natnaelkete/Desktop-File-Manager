@@ -4,6 +4,7 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   listDir: (path) => electron.ipcRenderer.invoke("list-dir", path),
   getDrives: () => electron.ipcRenderer.invoke("get-drives"),
   deleteItems: (paths) => electron.ipcRenderer.invoke("delete-items", paths),
+  deleteItemsPermanently: (paths) => electron.ipcRenderer.invoke("delete-items-permanently", paths),
   renameItem: (oldPath, newPath) => electron.ipcRenderer.invoke("rename-item", oldPath, newPath),
   createFolder: (path) => electron.ipcRenderer.invoke("create-folder", path),
   openPath: (path) => electron.ipcRenderer.invoke("open-path", path),
