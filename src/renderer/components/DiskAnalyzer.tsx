@@ -91,7 +91,7 @@ const DiskAnalyzer: React.FC<DiskAnalyzerProps> = ({ path, onClose }) => {
   };
 
   useEffect(() => {
-    if (view === "duplicates" && paginatedDuplicates.length === 0) {
+    if (view === "duplicates") {
       fetchDuplicates(true);
     }
   }, [view]);

@@ -572,21 +572,22 @@ ipcMain.handle("get-advanced-stats", async (_event, dirPath: string) => {
 
     await scan(dirPath);
 
-    const duplicateGroups = Array.from(hashes.values()).filter(
-      (paths) => paths.length > 1,
-    );
+    const duplicateGroups: string[][] = [];
+    let duplicateCount = 0;
+    let duplicateSize = 0;
+
+    for (const [key, paths] of hashes.entries()) {
+      if (paths.length > 1) {
+        duplicateGroups.push(paths);
+        duplicateCount += paths.length;
+        // Parse size from key "${s.size}-${entry.name}"
+        const size = parseInt(key) || 0;
+        duplicateSize += size * (paths.length - 1);
+      }
+    }
 
     // Cache for pagination
     lastScanCache.duplicateGroups = duplicateGroups;
-
-    const duplicateCount = duplicateGroups.reduce(
-      (acc, curr) => acc + curr.length,
-      0,
-    );
-    const duplicateSize = duplicateGroups.reduce((acc, curr) => {
-      const stats = fs_native.statSync(curr[0]);
-      return acc + stats.size * (curr.length - 1);
-    }, 0);
 
     return {
       categories,

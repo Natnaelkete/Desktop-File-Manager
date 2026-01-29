@@ -1,4 +1,4 @@
-import React, { memo } from 'react'
+import React, { memo, useRef, useState, useEffect } from 'react'
 import { 
   ArrowLeft, 
   Loader2, 
@@ -6,8 +6,6 @@ import {
   FolderOpen
 } from 'lucide-react'
 import { FixedSizeList as List, areEqual } from 'react-window'
-// @ts-ignore
-import { AutoSizer } from 'react-virtualized-auto-sizer'
 
 interface DuplicatesViewProps {
   groups: string[][]
@@ -16,6 +14,28 @@ interface DuplicatesViewProps {
   onBack: () => void
   onReveal: (path: string) => void
   onFetchMore: () => void
+}
+
+// Simple hook to measure container size
+function useContainerSize() {
+  const ref = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    if (!ref.current) return
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        setSize({ width, height })
+      }
+    })
+
+    observer.observe(ref.current)
+    return () => observer.disconnect()
+  }, [])
+
+  return { ref, width: size.width, height: size.height }
 }
 
 const GroupRow = memo(({ index, style, data }: { index: number, style: React.CSSProperties, data: any }) => {
@@ -40,7 +60,9 @@ const GroupRow = memo(({ index, style, data }: { index: number, style: React.CSS
           </span>
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin border-l-2 border-slate-50 dark:border-slate-800/50 ml-3.5 pl-3.5 space-y-1">
-          {group.map((p: string, pIdx: number) => (
+          {group.backups ? group.backups.map((p: string, pIdx: number) => (
+             <div key={pIdx}></div>
+          )) : group.map((p: string, pIdx: number) => (
             <div key={pIdx} className="flex items-center justify-between group py-1 border-b border-slate-50 dark:border-slate-800/20 last:border-0 font-mono">
               <span className="text-[10px] text-slate-500 truncate pr-4" title={p}>{p}</span>
               <button 
@@ -65,6 +87,8 @@ const DuplicatesView: React.FC<DuplicatesViewProps> = ({
   onReveal, 
   onFetchMore 
 }) => {
+  const { ref, width, height } = useContainerSize()
+
   return (
     <div className="absolute inset-0 flex flex-col bg-slate-50 dark:bg-slate-950 z-50">
       <div className="h-14 flex items-center px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm z-10 shrink-0">
@@ -90,29 +114,26 @@ const DuplicatesView: React.FC<DuplicatesViewProps> = ({
         )}
       </div>
       
-      <div className="flex-1 w-full min-h-0 bg-slate-50 dark:bg-slate-950 pt-6 relative overflow-hidden">
-        {/* @ts-ignore */}
-        <AutoSizer>
-          {({ height, width }: { height: number, width: number }) => (
-            <List
-              height={height || 500}
-              width={width || 800}
-              itemCount={groups.length}
-              itemSize={220}
-              itemData={{
-                items: groups,
-                onReveal: onReveal
-              }}
-              onItemsRendered={({ visibleStopIndex }: { visibleStopIndex: number }) => {
-                if (visibleStopIndex >= groups.length - 5 && !loadingMore && groups.length < totalGroups) {
-                  onFetchMore()
-                }
-              }}
-            >
-              {GroupRow}
-            </List>
-          )}
-        </AutoSizer>
+      <div ref={ref} className="flex-1 w-full min-h-0 bg-slate-50 dark:bg-slate-950 relative overflow-hidden">
+        {width > 0 && height > 0 && (
+          <List
+            height={height}
+            width={width}
+            itemCount={groups.length}
+            itemSize={220}
+            itemData={{
+              items: groups,
+              onReveal: onReveal
+            }}
+            onItemsRendered={({ visibleStopIndex }: { visibleStopIndex: number }) => {
+              if (visibleStopIndex >= groups.length - 5 && !loadingMore && groups.length < totalGroups) {
+                onFetchMore()
+              }
+            }}
+          >
+            {GroupRow}
+          </List>
+        )}
 
         {groups.length === 0 && !loadingMore && (
            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6">
