@@ -3426,6 +3426,105 @@ electron.ipcMain.handle("read-file", async (_event, filePath) => {
     return { error: error.message };
   }
 });
+const getOpenWithApps = async (filePath) => {
+  var _a, _b, _c, _d, _e;
+  if (process.platform !== "win32") return [];
+  const ext = path.extname(filePath).toLowerCase();
+  if (!ext) return [];
+  const openWithKey = `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\${ext}\\OpenWithList`;
+  let values = {};
+  try {
+    const listResult = await regList([openWithKey]);
+    values = ((_a = listResult == null ? void 0 : listResult[openWithKey]) == null ? void 0 : _a.values) || {};
+  } catch (e) {
+    values = {};
+  }
+  const mru = ((_b = values.MRUList) == null ? void 0 : _b.value) || "";
+  const exeKeys = Object.keys(values).filter(
+    (k) => {
+      var _a2;
+      return k.length === 1 && typeof ((_a2 = values[k]) == null ? void 0 : _a2.value) === "string";
+    }
+  );
+  const orderedExeNames = mru ? mru.split("").map((k) => {
+    var _a2;
+    return (_a2 = values[k]) == null ? void 0 : _a2.value;
+  }).filter(Boolean) : exeKeys.map((k) => {
+    var _a2;
+    return (_a2 = values[k]) == null ? void 0 : _a2.value;
+  }).filter(Boolean);
+  const uniqueExeNames = Array.from(
+    new Set(orderedExeNames.map((v) => String(v)))
+  );
+  const resolvedApps = [];
+  for (const exe of uniqueExeNames) {
+    const appKeys = [
+      `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}`,
+      `HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}`,
+      `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}`
+    ];
+    let appPath = "";
+    try {
+      const appResult = await regList(appKeys);
+      for (const key of appKeys) {
+        const val = (_e = (_d = (_c = appResult == null ? void 0 : appResult[key]) == null ? void 0 : _c.values) == null ? void 0 : _d[""]) == null ? void 0 : _e.value;
+        if (val) {
+          appPath = val;
+          break;
+        }
+      }
+    } catch (e) {
+    }
+    if (!appPath) continue;
+    resolvedApps.push({
+      name: exe.replace(/\.exe$/i, ""),
+      path: appPath
+    });
+    if (resolvedApps.length >= 5) break;
+  }
+  return resolvedApps;
+};
+electron.ipcMain.handle("open-with", async (_event, filePath) => {
+  try {
+    if (process.platform === "win32") {
+      const child = node_child_process.spawn(
+        "rundll32.exe",
+        ["shell32.dll,OpenAs_RunDLL", filePath],
+        { detached: true, stdio: "ignore" }
+      );
+      child.unref();
+      return { success: true };
+    }
+    await electron.shell.openPath(filePath);
+    return { success: true };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+electron.ipcMain.handle("get-open-with-apps", async (_event, filePath) => {
+  try {
+    const apps = await getOpenWithApps(filePath);
+    return { apps };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+electron.ipcMain.handle(
+  "open-with-app",
+  async (_event, appPath, filePath) => {
+    try {
+      if (!appPath) return { error: "APP_NOT_FOUND" };
+      const child = node_child_process.spawn(appPath, [filePath], {
+        detached: true,
+        stdio: "ignore"
+      });
+      child.unref();
+      return { success: true };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+);
 electron.ipcMain.handle(
   "write-file",
   async (_event, filePath, content) => {

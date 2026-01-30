@@ -3,7 +3,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import fs_native from "node:fs";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { exec } from "node:child_process";
+import { exec, spawn } from "node:child_process";
 // @ts-ignore
 import regedit from "regedit";
 
@@ -46,6 +46,117 @@ ipcMain.handle("read-file", async (_event, filePath: string) => {
     return { error: error.message };
   }
 });
+
+const getOpenWithApps = async (filePath: string) => {
+  if (process.platform !== "win32") return [];
+  const ext = path.extname(filePath).toLowerCase();
+  if (!ext) return [];
+
+  const openWithKey = `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\${ext}\\OpenWithList`;
+
+  let values: Record<string, any> = {};
+  try {
+    const listResult = await regList([openWithKey]);
+    values = listResult?.[openWithKey]?.values || {};
+  } catch (e) {
+    values = {};
+  }
+
+  const mru = (values.MRUList?.value as string) || "";
+  const exeKeys = Object.keys(values).filter(
+    (k) => k.length === 1 && typeof values[k]?.value === "string",
+  );
+
+  const orderedExeNames = mru
+    ? mru
+        .split("")
+        .map((k) => values[k]?.value)
+        .filter(Boolean)
+    : exeKeys.map((k) => values[k]?.value).filter(Boolean);
+
+  const uniqueExeNames = Array.from(
+    new Set(orderedExeNames.map((v) => String(v))),
+  );
+
+  const resolvedApps = [] as { name: string; path: string }[];
+
+  for (const exe of uniqueExeNames) {
+    const appKeys = [
+      `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}`,
+      `HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}`,
+      `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}`,
+    ];
+
+    let appPath = "";
+    try {
+      const appResult = await regList(appKeys);
+      for (const key of appKeys) {
+        const val = appResult?.[key]?.values?.[""]?.value as string;
+        if (val) {
+          appPath = val;
+          break;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    if (!appPath) continue;
+    resolvedApps.push({
+      name: exe.replace(/\.exe$/i, ""),
+      path: appPath,
+    });
+
+    if (resolvedApps.length >= 5) break;
+  }
+
+  return resolvedApps;
+};
+
+ipcMain.handle("open-with", async (_event, filePath: string) => {
+  try {
+    if (process.platform === "win32") {
+      const child = spawn(
+        "rundll32.exe",
+        ["shell32.dll,OpenAs_RunDLL", filePath],
+        { detached: true, stdio: "ignore" },
+      );
+      child.unref();
+      return { success: true };
+    }
+
+    await shell.openPath(filePath);
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("get-open-with-apps", async (_event, filePath: string) => {
+  try {
+    const apps = await getOpenWithApps(filePath);
+    return { apps };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle(
+  "open-with-app",
+  async (_event, appPath: string, filePath: string) => {
+    try {
+      if (!appPath) return { error: "APP_NOT_FOUND" };
+      const child = spawn(appPath, [filePath], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      return { success: true };
+    } catch (error: any) {
+      return { error: error.message };
+    }
+  },
+);
 
 ipcMain.handle(
   "write-file",

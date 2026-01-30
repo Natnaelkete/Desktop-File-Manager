@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("rename-item", oldPath, newPath),
   createFolder: (path: string) => ipcRenderer.invoke("create-folder", path),
   openPath: (path: string) => ipcRenderer.invoke("open-path", path),
+  openWith: (path: string) => ipcRenderer.invoke("open-with", path),
+  getOpenWithApps: (path: string) =>
+    ipcRenderer.invoke("get-open-with-apps", path),
+  openWithApp: (appPath: string, path: string) =>
+    ipcRenderer.invoke("open-with-app", appPath, path),
   searchFiles: (dirPath: string, query: string) =>
     ipcRenderer.invoke("search-files", dirPath, query),
   getFileHash: (filePath: string, algorithm: string) =>

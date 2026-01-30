@@ -203,6 +203,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
   const [propertiesItems, setPropertiesItems] = useState<FileItem[] | null>(
     null,
   );
+  const [openWithApps, setOpenWithApps] = useState<
+    { name: string; path: string }[]
+  >([]);
+  const [openWithLoading, setOpenWithLoading] = useState(false);
+  const openWithCacheRef = useRef(
+    new Map<string, { name: string; path: string }[]>(),
+  );
   const listRef = useRef<List>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
@@ -276,6 +283,37 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     }
   }, [tab?.id, tab?.path]);
 
+  const loadOpenWithApps = useCallback(async (filePath: string) => {
+    if (!filePath) return;
+    const cached = openWithCacheRef.current.get(filePath);
+    if (cached) {
+      setOpenWithApps(cached);
+      return;
+    }
+
+    setOpenWithLoading(true);
+    const result = await (window as any).electronAPI.getOpenWithApps(filePath);
+    const apps = result?.apps || [];
+    openWithCacheRef.current.set(filePath, apps);
+    setOpenWithApps(apps);
+    setOpenWithLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (selection.length === 0) return;
+    loadOpenWithApps(selection[0]);
+  }, [selection, loadOpenWithApps]);
+
+  useEffect(() => {
+    if (menuPos?.type !== "file" || selection.length === 0) {
+      setOpenWithApps([]);
+      setOpenWithLoading(false);
+      return;
+    }
+
+    loadOpenWithApps(selection[0]);
+  }, [menuPos?.type, selection, loadOpenWithApps]);
+
   if (!tab) return null;
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -297,8 +335,20 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
 
   const getMenuItems = useCallback(() => {
     if (menuPos?.type === "file") {
+      const openWithSubmenu: ContextMenuItem[] = [
+        ...(openWithApps.length === 0 && openWithLoading
+          ? [{ label: "Loading..." }]
+          : openWithApps.map((app) => ({
+              label: app.name,
+              action: `open-with-app|${encodeURIComponent(app.path)}`,
+            }))),
+        ...(openWithApps.length > 0 ? [{ separator: true }] : []),
+        { label: "Show more...", action: "open-with" },
+      ];
+
       return [
         { label: "Open", icon: ChevronRight, action: "open" },
+        { label: "Open with", icon: File, submenu: openWithSubmenu },
         { separator: true },
         { label: "Cut", icon: Scissors, action: "cut" },
         { label: "Copy", icon: Copy, action: "copy" },
@@ -357,7 +407,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         { label: "Properties", icon: Info, action: "properties-folder" },
       ] as ContextMenuItem[];
     }
-  }, [menuPos?.type]);
+  }, [menuPos?.type, openWithApps, openWithLoading]);
 
   const handleAction = async (action: string) => {
     // View Actions
@@ -424,6 +474,36 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       if (selection.length > 0) {
         const file = tab.files.find((f: FileItem) => f.path === selection[0]);
         if (file) handleDoubleClick(file);
+      }
+      setMenuPos(null);
+      return;
+    }
+
+    if (action === "open-with") {
+      if (selection.length > 0) {
+        const filePath = selection[0];
+        const result = await (window as any).electronAPI.openWith(filePath);
+        if (result && result.error) {
+          alert(`Error opening file: ${result.error}`);
+        }
+      }
+      setMenuPos(null);
+      return;
+    }
+
+    if (action.startsWith("open-with-app|")) {
+      if (selection.length > 0) {
+        const appPath = decodeURIComponent(
+          action.replace("open-with-app|", ""),
+        );
+        const filePath = selection[0];
+        const result = await (window as any).electronAPI.openWithApp(
+          appPath,
+          filePath,
+        );
+        if (result && result.error) {
+          alert(`Error opening file: ${result.error}`);
+        }
       }
       setMenuPos(null);
       return;
