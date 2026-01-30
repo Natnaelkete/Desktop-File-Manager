@@ -200,6 +200,9 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     name: string;
   } | null>(null);
   const [propertiesFile, setPropertiesFile] = useState<FileItem | null>(null);
+  const [propertiesItems, setPropertiesItems] = useState<FileItem[] | null>(
+    null,
+  );
   const listRef = useRef<List>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
@@ -265,10 +268,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
   }, [filteredFiles, scrollTarget, viewMode]);
 
   useEffect(() => {
-    if (tab?.path) {
+    if (!tab?.path) return;
+
+    // Ensure newly opened tabs load even if path matches an existing tab
+    if (tab.files.length === 0 || tab.loading) {
       refresh(tab.path);
     }
-  }, [tab?.path]);
+  }, [tab?.id, tab?.path]);
 
   if (!tab) return null;
 
@@ -453,9 +459,17 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         const name = path.split("\\").pop() || "";
         setRenameItem({ path, name });
       }
-    } else if (action === "properties" && selection.length === 1) {
-      const file = tab.files.find((f: FileItem) => f.path === selection[0]);
-      if (file) setPropertiesFile(file);
+    } else if (action === "properties" && selection.length >= 1) {
+      const selectedItems = tab.files.filter((f: FileItem) =>
+        selection.includes(f.path),
+      );
+      if (selectedItems.length === 1) {
+        setPropertiesItems(null);
+        setPropertiesFile(selectedItems[0]);
+      } else if (selectedItems.length > 1) {
+        setPropertiesFile(null);
+        setPropertiesItems(selectedItems);
+      }
     } else if (action === "copy" && selection.length > 0) {
       copySelection(side);
     } else if (action === "cut" && selection.length > 0) {
@@ -1036,6 +1050,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         />
       )}
 
+      {propertiesItems && (
+        <PropertiesModal
+          items={propertiesItems}
+          onClose={() => setPropertiesItems(null)}
+        />
+      )}
+
       <KeyboardShortcuts
         side={side}
         selection={selection}
@@ -1068,6 +1089,15 @@ function KeyboardShortcuts({
           } else {
             handleAction("delete");
           }
+        }
+        return;
+      }
+
+      // Handle Alt + Enter (Properties)
+      if (e.altKey && e.key === "Enter") {
+        if (selection.length > 0) {
+          e.preventDefault();
+          handleAction("properties");
         }
         return;
       }

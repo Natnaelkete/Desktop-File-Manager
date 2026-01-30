@@ -490,13 +490,12 @@ ipcMain.handle("get-advanced-stats", async (_event, dirPath: string) => {
     const recentFiles: any[] = [];
     const redundantFiles: any[] = [];
     const hashes = new Map<string, string[]>(); // hash -> paths[] (for duplicate detection)
+    let totalSize = 0;
 
     const now = Date.now();
     const oneDay = 24 * 60 * 60 * 1000;
 
     const scan = async (d: string, depth = 0) => {
-      // Limit scan depth to avoid excessive time/memory usage, but allow enough to be useful
-      if (depth > 6) return;
       try {
         const entries = await fs.readdir(d, { withFileTypes: true });
         for (const entry of entries) {
@@ -506,6 +505,7 @@ ipcMain.handle("get-advanced-stats", async (_event, dirPath: string) => {
           } else {
             try {
               const s = await fs.stat(fullPath);
+              totalSize += s.size;
               const ext = path.extname(entry.name).toLowerCase().slice(1);
 
               // Categorize
@@ -590,6 +590,7 @@ ipcMain.handle("get-advanced-stats", async (_event, dirPath: string) => {
     lastScanCache.duplicateGroups = duplicateGroups;
 
     return {
+      totalSize,
       categories,
       largeFiles: largeFiles.sort((a, b) => b.size - a.size).slice(0, 20),
       recentFiles: recentFiles

@@ -4,34 +4,98 @@ import { X, Info, Calendar, HardDrive, FileText, Folder } from "lucide-react";
 import { FileItem } from "../stores/store";
 
 interface PropertiesModalProps {
-  file: FileItem;
+  file?: FileItem;
+  items?: FileItem[];
   onClose: () => void;
 }
 
-const PropertiesModal: React.FC<PropertiesModalProps> = ({ file, onClose }) => {
-  const [size, setSize] = React.useState<number>(file.size);
+const PropertiesModal: React.FC<PropertiesModalProps> = ({
+  file,
+  items,
+  onClose,
+}) => {
+  const isMulti = !!items && items.length > 1;
+  const displayName = isMulti ? `${items!.length} items` : file?.name || "";
+  const displayPath = isMulti ? "Multiple locations" : file?.path || "";
+  const [size, setSize] = React.useState<number>(file?.size ?? 0);
   const [calculating, setCalculating] = React.useState(false);
+  const [errorCount, setErrorCount] = React.useState(0);
 
   React.useEffect(() => {
-    if (file.isDirectory) {
+    let cancelled = false;
+
+    const fetchSingleSize = async () => {
+      if (!file) return;
+      if (!file.isDirectory) {
+        setSize(file.size || 0);
+        return;
+      }
       setCalculating(true);
-      const fetchSize = async () => {
-        try {
-          const stats = await (window as any).electronAPI.getAdvancedStats(
-            file.path,
-          );
+      try {
+        const stats = await (window as any).electronAPI.getAdvancedStats(
+          file.path,
+        );
+        if (!cancelled) {
           if (stats && !stats.error) {
-            setSize(stats.totalSize);
+            setSize(stats.totalSize || 0);
           }
-        } catch (e) {
-          console.error(e);
-        } finally {
-          setCalculating(false);
         }
-      };
-      fetchSize();
+      } catch (e) {
+        if (!cancelled) console.error(e);
+      } finally {
+        if (!cancelled) setCalculating(false);
+      }
+    };
+
+    const fetchMultiSize = async () => {
+      if (!items || items.length <= 1) return;
+      setCalculating(true);
+      setErrorCount(0);
+      let total = 0;
+      let errors = 0;
+
+      await Promise.all(
+        items.map(async (item) => {
+          if (item.isDirectory) {
+            try {
+              const stats = await (window as any).electronAPI.getAdvancedStats(
+                item.path,
+              );
+              if (
+                stats &&
+                !stats.error &&
+                typeof stats.totalSize === "number"
+              ) {
+                total += stats.totalSize;
+              } else {
+                errors += 1;
+              }
+            } catch (e) {
+              errors += 1;
+            }
+          } else {
+            total += item.size || 0;
+          }
+        }),
+      );
+
+      if (!cancelled) {
+        setSize(total);
+        setErrorCount(errors);
+        setCalculating(false);
+      }
+    };
+
+    if (isMulti) {
+      fetchMultiSize();
+    } else {
+      fetchSingleSize();
     }
-  }, [file]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [file, items, isMulti]);
 
   const formatSize = (bytes: number) => {
     if (bytes === undefined || bytes === null || isNaN(bytes)) return "0 B";
@@ -67,7 +131,7 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({ file, onClose }) => {
         <div className="p-6 space-y-6">
           <div className="flex items-start gap-4">
             <div className="p-4 bg-primary-100 dark:bg-primary-900/20 rounded-xl">
-              {file.isDirectory ? (
+              {file?.isDirectory || isMulti ? (
                 <Folder
                   size={32}
                   className="text-amber-500 fill-amber-500/20"
@@ -77,8 +141,8 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({ file, onClose }) => {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="font-bold text-lg truncate mb-1">{file.name}</h3>
-              <p className="text-xs text-slate-500 break-all">{file.path}</p>
+              <h3 className="font-bold text-lg truncate mb-1">{displayName}</h3>
+              <p className="text-xs text-slate-500 break-all">{displayPath}</p>
             </div>
           </div>
 
@@ -89,12 +153,13 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({ file, onClose }) => {
                 <span>Size</span>
               </div>
               <p className="font-semibold text-sm">
-                {file.isDirectory
-                  ? calculating
-                    ? "Calculating..."
-                    : formatSize(size)
-                  : formatSize(file.size)}
+                {calculating ? "Calculating..." : formatSize(size)}
               </p>
+              {errorCount > 0 && (
+                <p className="text-[10px] text-amber-500 mt-1">
+                  {errorCount} item{errorCount > 1 ? "s" : ""} could not be read
+                </p>
+              )}
             </div>
             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
@@ -102,7 +167,9 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({ file, onClose }) => {
                 <span>Modified</span>
               </div>
               <p className="font-semibold text-sm">
-                {new Date(file.modifiedAt).toLocaleDateString()}
+                {isMulti || !file
+                  ? "Multiple"
+                  : new Date(file.modifiedAt).toLocaleDateString()}
               </p>
             </div>
           </div>
@@ -111,21 +178,27 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({ file, onClose }) => {
             <div className="flex justify-between text-sm py-2 border-b border-slate-100 dark:border-slate-800">
               <span className="text-slate-500">Type</span>
               <span className="font-medium">
-                {file.isDirectory
-                  ? "File Folder"
-                  : file.name.split(".").pop()?.toUpperCase() + " File"}
+                {isMulti
+                  ? "Multiple Items"
+                  : file?.isDirectory
+                    ? "File Folder"
+                    : file?.name.split(".").pop()?.toUpperCase() + " File"}
               </span>
             </div>
             <div className="flex justify-between text-sm py-2 border-b border-slate-100 dark:border-slate-800">
               <span className="text-slate-500">Created</span>
               <span className="font-medium text-right">
-                {new Date(file.createdAt).toLocaleString()}
+                {isMulti || !file
+                  ? "Multiple"
+                  : new Date(file.createdAt).toLocaleString()}
               </span>
             </div>
             <div className="flex justify-between text-sm py-2">
               <span className="text-slate-500">Location</span>
               <span className="font-medium text-right truncate ml-4">
-                {file.path.split("\\").slice(0, -1).join("\\")}
+                {isMulti || !file
+                  ? "Multiple locations"
+                  : file.path.split("\\").slice(0, -1).join("\\")}
               </span>
             </div>
           </div>

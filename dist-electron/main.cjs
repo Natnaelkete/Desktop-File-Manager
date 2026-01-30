@@ -3816,10 +3816,10 @@ electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
     const recentFiles = [];
     const redundantFiles = [];
     const hashes = /* @__PURE__ */ new Map();
+    let totalSize = 0;
     const now = Date.now();
     const oneDay = 24 * 60 * 60 * 1e3;
     const scan = async (d, depth = 0) => {
-      if (depth > 6) return;
       try {
         const entries = await fs$1.readdir(d, { withFileTypes: true });
         for (const entry of entries) {
@@ -3829,6 +3829,7 @@ electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
           } else {
             try {
               const s = await fs$1.stat(fullPath);
+              totalSize += s.size;
               const ext = path.extname(entry.name).toLowerCase().slice(1);
               let categorized = false;
               const catKeys = Object.keys(categories);
@@ -3893,6 +3894,7 @@ electron.ipcMain.handle("get-advanced-stats", async (_event, dirPath) => {
     }
     lastScanCache.duplicateGroups = duplicateGroups;
     return {
+      totalSize,
       categories,
       largeFiles: largeFiles.sort((a, b) => b.size - a.size).slice(0, 20),
       recentFiles: recentFiles.sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 20),
