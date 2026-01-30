@@ -26,7 +26,10 @@ const TabBar: React.FC<TabBarProps> = ({ side }) => {
     e: React.DragEvent<HTMLDivElement>,
     tabId: string,
   ) => {
-    e.dataTransfer.setData("text/plain", JSON.stringify({ tabId, fromSide: side }));
+    e.dataTransfer.setData(
+      "text/plain",
+      JSON.stringify({ tabId, fromSide: side }),
+    );
     e.dataTransfer.effectAllowed = "move";
   };
 
@@ -36,7 +39,10 @@ const TabBar: React.FC<TabBarProps> = ({ side }) => {
     if (!data) return;
 
     try {
-      const payload = JSON.parse(data) as { tabId: string; fromSide: TabBarProps["side"] };
+      const payload = JSON.parse(data) as {
+        tabId: string;
+        fromSide: TabBarProps["side"];
+      };
       if (!payload?.tabId || !payload?.fromSide) return;
       moveTab(payload.fromSide, side, payload.tabId);
     } catch {

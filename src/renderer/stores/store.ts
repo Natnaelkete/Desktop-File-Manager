@@ -38,24 +38,24 @@ interface AppState {
   rightTabs: TabState[];
   bottomLeftTabs: TabState[];
   bottomRightTabs: TabState[];
-  
+
   activeLeftTabId: string;
   activeRightTabId: string;
   activeBottomLeftTabId: string;
   activeBottomRightTabId: string;
-  
+
   theme: "light" | "dark";
-  
+
   leftViewMode: "list" | "grid";
   rightViewMode: "list" | "grid";
   bottomLeftViewMode: "list" | "grid";
   bottomRightViewMode: "list" | "grid";
-  
+
   leftSelection: string[];
   rightSelection: string[];
   bottomLeftSelection: string[];
   bottomRightSelection: string[];
-  
+
   searchQuery: string;
   activeView: "explorer" | "analyzer" | "apps" | "network";
   activeSide: "left" | "right" | "bottomLeft" | "bottomRight";
@@ -89,30 +89,57 @@ interface AppState {
   setTheme: (theme: "light" | "dark") => void;
   setLeftViewMode: (mode: "list" | "grid") => void;
   setRightViewMode: (mode: "list" | "grid") => void;
-  setViewMode: (side: "left" | "right" | "bottomLeft" | "bottomRight", mode: "list" | "grid") => void;
-  setSelection: (side: "left" | "right" | "bottomLeft" | "bottomRight", selection: string[]) => void;
+  setViewMode: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    mode: "list" | "grid",
+  ) => void;
+  setSelection: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    selection: string[],
+  ) => void;
   setSearchQuery: (query: string) => void;
   setActiveView: (view: "explorer" | "analyzer" | "apps" | "network") => void;
   setInstalledApps: (apps: any[]) => void;
   setUwpApps: (apps: any[]) => void;
   setOrphans: (orphans: any[]) => void;
-  
-  addTab: (side: "left" | "right" | "bottomLeft" | "bottomRight", path: string) => void;
-  closeTab: (side: "left" | "right" | "bottomLeft" | "bottomRight", id: string) => void;
-  setActiveTab: (side: "left" | "right" | "bottomLeft" | "bottomRight", id: string) => void;
+
+  addTab: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    path: string,
+  ) => void;
+  closeTab: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    id: string,
+  ) => void;
+  setActiveTab: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    id: string,
+  ) => void;
   updateTabFiles: (
     side: "left" | "right" | "bottomLeft" | "bottomRight",
     id: string,
     files: FileItem[],
   ) => void;
-  navigateTo: (side: "left" | "right" | "bottomLeft" | "bottomRight", id: string, path: string) => void;
-  goBack: (side: "left" | "right" | "bottomLeft" | "bottomRight", id: string) => void;
-  goForward: (side: "left" | "right" | "bottomLeft" | "bottomRight", id: string) => void;
-  setActiveSide: (side: "left" | "right" | "bottomLeft" | "bottomRight") => void;
+  navigateTo: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    id: string,
+    path: string,
+  ) => void;
+  goBack: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    id: string,
+  ) => void;
+  goForward: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    id: string,
+  ) => void;
+  setActiveSide: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+  ) => void;
   toggleHidden: () => void;
   toggleDualPane: () => void; // Will verify
   toggleQuadPane: () => void; // New
-  
+
   setGridSize: (
     side: "left" | "right" | "bottomLeft" | "bottomRight",
     size: "small" | "medium" | "large" | "xl",
@@ -121,13 +148,18 @@ interface AppState {
     side: "left" | "right" | "bottomLeft" | "bottomRight",
     sortBy: "name" | "size" | "date" | "type",
   ) => void;
-  setSortOrder: (side: "left" | "right" | "bottomLeft" | "bottomRight", order: "asc" | "desc") => void;
+  setSortOrder: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    order: "asc" | "desc",
+  ) => void;
   moveTab: (
     fromSide: "left" | "right" | "bottomLeft" | "bottomRight",
     toSide: "left" | "right" | "bottomLeft" | "bottomRight",
     tabId: string,
   ) => void;
-  copySelection: (side: "left" | "right" | "bottomLeft" | "bottomRight") => void;
+  copySelection: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+  ) => void;
   cutSelection: (side: "left" | "right" | "bottomLeft" | "bottomRight") => void;
   clearClipboard: () => void;
 }
@@ -234,9 +266,9 @@ export const useStore = create<AppState>((set) => ({
         files: [],
         loading: false,
       };
-      return { 
-        [tabsKey]: [...(state[tabsKey] || []), newTab], 
-        [activeKey]: id 
+      return {
+        [tabsKey]: [...(state[tabsKey] || []), newTab],
+        [activeKey]: id,
       } as any;
     }),
 
@@ -340,15 +372,17 @@ export const useStore = create<AppState>((set) => ({
 
   toggleHidden: () => set((state: any) => ({ showHidden: !state.showHidden })),
 
-  toggleDualPane: () => set((state: any) => ({ 
-    dualPane: !state.dualPane,
-    paneCount: state.dualPane ? 1 : 2
-  })),
+  toggleDualPane: () =>
+    set((state: any) => ({
+      dualPane: !state.dualPane,
+      paneCount: state.dualPane ? 1 : 2,
+    })),
 
-  toggleQuadPane: () => set((state: any) => ({ 
-    paneCount: state.paneCount === 4 ? 2 : 4,
-    dualPane: true
-  })),
+  toggleQuadPane: () =>
+    set((state: any) => ({
+      paneCount: state.paneCount === 4 ? 2 : 4,
+      dualPane: true,
+    })),
 
   setViewMode: (side, mode) => {
     const { viewModeKey } = getSideKeys(side);

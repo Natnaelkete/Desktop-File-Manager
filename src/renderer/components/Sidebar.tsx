@@ -38,7 +38,11 @@ interface SidebarProps {
   setCollapsed?: (collapsed: boolean) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer, collapsed = false, setCollapsed }) => {
+const Sidebar: React.FC<SidebarProps> = ({
+  onOpenAnalyzer,
+  collapsed = false,
+  setCollapsed,
+}) => {
   const [drives, setDrives] = useState<Drive[]>([]);
   const [userPaths, setUserPaths] = useState<any>(null);
   const {
@@ -95,7 +99,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer, collapsed = false, se
       let activeTabId;
       if (activeSide === "left") activeTabId = state.activeLeftTabId;
       else if (activeSide === "right") activeTabId = state.activeRightTabId;
-      else if (activeSide === "bottomLeft") activeTabId = state.activeBottomLeftTabId;
+      else if (activeSide === "bottomLeft")
+        activeTabId = state.activeBottomLeftTabId;
       else activeTabId = state.activeBottomRightTabId;
 
       navigateTo(activeSide, activeTabId, item.path);
@@ -109,7 +114,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer, collapsed = false, se
         collapsed ? "w-16" : "w-64",
       )}
     >
-      <div className={clsx("flex items-center p-2 shrink-0 h-10", collapsed ? "justify-center" : "justify-end")}>
+      <div
+        className={clsx(
+          "flex items-center p-2 shrink-0 h-10",
+          collapsed ? "justify-center" : "justify-end",
+        )}
+      >
         <button
           onClick={() => setCollapsed?.(!collapsed)}
           className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 transition-colors"
@@ -119,7 +129,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer, collapsed = false, se
         </button>
       </div>
 
-      <div className={clsx("flex-1 overflow-y-auto p-4 pt-0", collapsed && "px-2")}>
+      <div
+        className={clsx("flex-1 overflow-y-auto p-4 pt-0", collapsed && "px-2")}
+      >
         {/* Drives */}
         <section className="mb-6">
           {!collapsed && (
@@ -138,15 +150,18 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer, collapsed = false, se
                     drives[0]?.path === drive.path
                     ? "bg-slate-200 dark:bg-slate-800"
                     : "hover:bg-slate-200 dark:hover:bg-slate-800",
-                  collapsed && "justify-center"
+                  collapsed && "justify-center",
                 )}
                 onClick={() => {
                   setActiveView("explorer");
                   const state = useStore.getState();
                   let activeTabId;
-                  if (activeSide === "left") activeTabId = state.activeLeftTabId;
-                  else if (activeSide === "right") activeTabId = state.activeRightTabId;
-                  else if (activeSide === "bottomLeft") activeTabId = state.activeBottomLeftTabId;
+                  if (activeSide === "left")
+                    activeTabId = state.activeLeftTabId;
+                  else if (activeSide === "right")
+                    activeTabId = state.activeRightTabId;
+                  else if (activeSide === "bottomLeft")
+                    activeTabId = state.activeBottomLeftTabId;
                   else activeTabId = state.activeBottomRightTabId;
                   navigateTo(activeSide, activeTabId, drive.path);
                 }}
@@ -200,12 +215,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer, collapsed = false, se
                     (item.view === "analyzer" && activeView === "analyzer")
                     ? "bg-primary-500/10 text-primary-500 font-bold"
                     : "text-slate-500",
-                  collapsed && "justify-center"
+                  collapsed && "justify-center",
                 )}
                 title={collapsed ? item.label : undefined}
               >
                 <item.icon size={18} />
-                <span className={clsx("text-sm font-medium", collapsed && "hidden")}>
+                <span
+                  className={clsx("text-sm font-medium", collapsed && "hidden")}
+                >
                   {item.label}
                 </span>
               </div>
@@ -227,12 +244,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer, collapsed = false, se
                 onClick={() => handleItemClick(item)}
                 className={clsx(
                   "flex items-center gap-3 p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer transition-colors text-slate-500",
-                  collapsed && "justify-center"
+                  collapsed && "justify-center",
                 )}
                 title={collapsed ? item.label : undefined}
               >
                 <item.icon size={18} />
-                <span className={clsx("text-sm font-medium", collapsed && "hidden")}>
+                <span
+                  className={clsx("text-sm font-medium", collapsed && "hidden")}
+                >
                   {item.label}
                 </span>
               </div>
@@ -254,12 +273,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer, collapsed = false, se
                 onClick={() => handleItemClick(item)}
                 className={clsx(
                   "flex items-center gap-3 p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer transition-colors text-slate-500",
-                  collapsed && "justify-center"
+                  collapsed && "justify-center",
                 )}
                 title={collapsed ? item.label : undefined}
               >
                 <item.icon size={18} />
-                <span className={clsx("text-sm font-medium", collapsed && "hidden")}>
+                <span
+                  className={clsx("text-sm font-medium", collapsed && "hidden")}
+                >
                   {item.label}
                 </span>
               </div>
@@ -269,15 +290,22 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenAnalyzer, collapsed = false, se
       </div>
 
       {/* Sidebar Footer / Settings */}
-      <div className={clsx("p-4 border-t border-slate-200 dark:border-slate-800 mt-auto shrink-0", collapsed && "px-2")}>
+      <div
+        className={clsx(
+          "p-4 border-t border-slate-200 dark:border-slate-800 mt-auto shrink-0",
+          collapsed && "px-2",
+        )}
+      >
         <div
           onClick={toggleHidden}
           className={clsx(
             "flex items-center gap-3 p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer transition-colors text-slate-500",
             showHidden && "text-primary-500 bg-primary-500/5",
-            collapsed && "justify-center"
+            collapsed && "justify-center",
           )}
-          title={collapsed ? (showHidden ? "Hide Hidden" : "Show Hidden") : undefined}
+          title={
+            collapsed ? (showHidden ? "Hide Hidden" : "Show Hidden") : undefined
+          }
         >
           {showHidden ? <Eye size={18} /> : <EyeOff size={18} />}
           <span className={clsx("text-sm font-medium", collapsed && "hidden")}>

@@ -127,14 +127,14 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     if (side === "bottomLeft") return state.activeBottomLeftTabId;
     return state.activeBottomRightTabId;
   });
-  
+
   const tab = useStore((state: any) => {
     let tabs = [];
     if (side === "left") tabs = state.leftTabs;
     else if (side === "right") tabs = state.rightTabs;
     else if (side === "bottomLeft") tabs = state.bottomLeftTabs;
     else tabs = state.bottomRightTabs;
-    
+
     return tabs.find((t: any) => t.id === activeTabId);
   });
 
@@ -166,14 +166,14 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     cutSelection,
     clearClipboard,
   } = useStore();
-  
+
   const gridSize = useStore((state: any) => {
     if (side === "left") return state.leftGridSize;
     if (side === "right") return state.rightGridSize;
     if (side === "bottomLeft") return state.bottomLeftGridSize;
     return state.bottomRightGridSize;
   });
-  
+
   const sortBy = useStore((state: any) => {
     if (side === "left") return state.leftSortBy;
     if (side === "right") return state.rightSortBy;

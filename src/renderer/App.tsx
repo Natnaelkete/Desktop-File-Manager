@@ -1,156 +1,199 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import Sidebar from './components/Sidebar'
-import FilePanel from './components/FilePanel'
-import DiskAnalyzer from './components/DiskAnalyzer'
-import ImageViewer from './components/ImageViewer'
-import TextEditor from './components/TextEditor'
-import AppManager from './components/AppManager'
-import NetworkPanel from './components/NetworkPanel'
-import { useStore } from './stores/store'
-import { 
-  Search, 
-  Moon, 
-  Sun, 
-  Settings, 
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import Sidebar from "./components/Sidebar";
+import FilePanel from "./components/FilePanel";
+import DiskAnalyzer from "./components/DiskAnalyzer";
+import ImageViewer from "./components/ImageViewer";
+import TextEditor from "./components/TextEditor";
+import AppManager from "./components/AppManager";
+import NetworkPanel from "./components/NetworkPanel";
+import { useStore } from "./stores/store";
+import {
+  Search,
+  Moon,
+  Sun,
+  Settings,
   LayoutDashboard,
   Bell,
   Columns,
-  Grid
-} from 'lucide-react'
-import { clsx } from 'clsx'
-import hotkeys from 'hotkeys-js'
+  Grid,
+} from "lucide-react";
+import { clsx } from "clsx";
+import hotkeys from "hotkeys-js";
 
 const App: React.FC = () => {
-  console.log('App Component Rendering')
-  const { 
-    theme, setTheme, searchQuery, setSearchQuery, activeView, setActiveView,
-    activeSide, activeLeftTabId, activeRightTabId, goBack, goForward,
-    dualPane, toggleDualPane, toggleQuadPane, paneCount
-  } = useStore()
-  const [analyzerPath, setAnalyzerPath] = useState<string | null>(null)
-  const [viewerData, setViewerData] = useState<{ items: any[], index: number } | null>(null)
-  const [editingFile, setEditingFile] = useState<any>(null)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const explorerContainerRef = useRef<HTMLDivElement | null>(null)
-  const leftColRef = useRef<HTMLDivElement | null>(null)
-  const rightColRef = useRef<HTMLDivElement | null>(null)
-  const [gridSplit, setGridSplit] = useState({ col: 50, leftRow: 50, rightRow: 50 })
-  const dragAxisRef = useRef<'col' | 'leftRow' | 'rightRow' | null>(null)
+  console.log("App Component Rendering");
+  const {
+    theme,
+    setTheme,
+    searchQuery,
+    setSearchQuery,
+    activeView,
+    setActiveView,
+    activeSide,
+    activeLeftTabId,
+    activeRightTabId,
+    goBack,
+    goForward,
+    dualPane,
+    toggleDualPane,
+    toggleQuadPane,
+    paneCount,
+  } = useStore();
+  const [analyzerPath, setAnalyzerPath] = useState<string | null>(null);
+  const [viewerData, setViewerData] = useState<{
+    items: any[];
+    index: number;
+  } | null>(null);
+  const [editingFile, setEditingFile] = useState<any>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const explorerContainerRef = useRef<HTMLDivElement | null>(null);
+  const leftColRef = useRef<HTMLDivElement | null>(null);
+  const rightColRef = useRef<HTMLDivElement | null>(null);
+  const [gridSplit, setGridSplit] = useState({
+    col: 50,
+    leftRow: 50,
+    rightRow: 50,
+  });
+  const dragAxisRef = useRef<"col" | "leftRow" | "rightRow" | null>(null);
 
   const handleGridPointerMove = useCallback((e: PointerEvent) => {
-    if (!dragAxisRef.current) return
+    if (!dragAxisRef.current) return;
 
-    if (dragAxisRef.current === 'col') {
-      const container = explorerContainerRef.current
-      if (!container) return
-      const rect = container.getBoundingClientRect()
-      const next = ((e.clientX - rect.left) / rect.width) * 100
-      const clamped = Math.min(80, Math.max(20, next))
-      setGridSplit((prev) => ({ ...prev, col: clamped }))
-      return
+    if (dragAxisRef.current === "col") {
+      const container = explorerContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const next = ((e.clientX - rect.left) / rect.width) * 100;
+      const clamped = Math.min(80, Math.max(20, next));
+      setGridSplit((prev) => ({ ...prev, col: clamped }));
+      return;
     }
 
-    if (dragAxisRef.current === 'leftRow') {
-      const col = leftColRef.current
-      if (!col) return
-      const rect = col.getBoundingClientRect()
-      const next = ((e.clientY - rect.top) / rect.height) * 100
-      const clamped = Math.min(80, Math.max(20, next))
-      setGridSplit((prev) => ({ ...prev, leftRow: clamped }))
-      return
+    if (dragAxisRef.current === "leftRow") {
+      const col = leftColRef.current;
+      if (!col) return;
+      const rect = col.getBoundingClientRect();
+      const next = ((e.clientY - rect.top) / rect.height) * 100;
+      const clamped = Math.min(80, Math.max(20, next));
+      setGridSplit((prev) => ({ ...prev, leftRow: clamped }));
+      return;
     }
 
-    if (dragAxisRef.current === 'rightRow') {
-      const col = rightColRef.current
-      if (!col) return
-      const rect = col.getBoundingClientRect()
-      const next = ((e.clientY - rect.top) / rect.height) * 100
-      const clamped = Math.min(80, Math.max(20, next))
-      setGridSplit((prev) => ({ ...prev, rightRow: clamped }))
+    if (dragAxisRef.current === "rightRow") {
+      const col = rightColRef.current;
+      if (!col) return;
+      const rect = col.getBoundingClientRect();
+      const next = ((e.clientY - rect.top) / rect.height) * 100;
+      const clamped = Math.min(80, Math.max(20, next));
+      setGridSplit((prev) => ({ ...prev, rightRow: clamped }));
     }
-  }, [])
+  }, []);
 
   const handleGridPointerUp = useCallback(() => {
-    dragAxisRef.current = null
-    window.removeEventListener('pointermove', handleGridPointerMove)
-    window.removeEventListener('pointerup', handleGridPointerUp)
-  }, [handleGridPointerMove])
+    dragAxisRef.current = null;
+    window.removeEventListener("pointermove", handleGridPointerMove);
+    window.removeEventListener("pointerup", handleGridPointerUp);
+  }, [handleGridPointerMove]);
 
   useEffect(() => {
     // Keyboard navigation
     const handleKeyDown = (e: KeyboardEvent) => {
       // Prevent back navigation when typing in input fields
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
       }
 
-      const activeTabId = activeSide === 'left' ? activeLeftTabId : activeRightTabId
+      const activeTabId =
+        activeSide === "left" ? activeLeftTabId : activeRightTabId;
 
-      if (e.key === 'Backspace') {
-        e.preventDefault()
-        goBack(activeSide, activeTabId)
-      } else if (e.altKey && e.key === 'ArrowRight') {
-        e.preventDefault()
-        goForward(activeSide, activeTabId)
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        goBack(activeSide, activeTabId);
+      } else if (e.altKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        goForward(activeSide, activeTabId);
       }
-    }
+    };
 
-    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener("keydown", handleKeyDown);
 
-    hotkeys('ctrl+t', (e) => {
-      e.preventDefault()
-      setTheme(useStore.getState().theme === 'dark' ? 'light' : 'dark')
-    })
-    hotkeys('ctrl+f', (e) => {
-      e.preventDefault()
-      document.querySelector('input')?.focus()
-    })
-    hotkeys('ctrl+1', () => setActiveView('explorer'))
-    hotkeys('ctrl+2', () => setActiveView('analyzer'))
-    hotkeys('ctrl+3', () => setActiveView('apps'))
-    hotkeys('ctrl+4', () => setActiveView('network'))
-    hotkeys('ctrl+w', (e) => {
-      e.preventDefault()
-      const { closeTab, activeSide, activeLeftTabId, activeRightTabId, leftTabs, rightTabs } = useStore.getState()
-      const activeTabId = activeSide === 'left' ? activeLeftTabId : activeRightTabId
-      const tabs = activeSide === 'left' ? leftTabs : rightTabs
+    hotkeys("ctrl+t", (e) => {
+      e.preventDefault();
+      setTheme(useStore.getState().theme === "dark" ? "light" : "dark");
+    });
+    hotkeys("ctrl+f", (e) => {
+      e.preventDefault();
+      document.querySelector("input")?.focus();
+    });
+    hotkeys("ctrl+1", () => setActiveView("explorer"));
+    hotkeys("ctrl+2", () => setActiveView("analyzer"));
+    hotkeys("ctrl+3", () => setActiveView("apps"));
+    hotkeys("ctrl+4", () => setActiveView("network"));
+    hotkeys("ctrl+w", (e) => {
+      e.preventDefault();
+      const {
+        closeTab,
+        activeSide,
+        activeLeftTabId,
+        activeRightTabId,
+        leftTabs,
+        rightTabs,
+      } = useStore.getState();
+      const activeTabId =
+        activeSide === "left" ? activeLeftTabId : activeRightTabId;
+      const tabs = activeSide === "left" ? leftTabs : rightTabs;
       // Don't close if it's the last tab
       if (tabs.length > 1) {
-        closeTab(activeSide, activeTabId)
+        closeTab(activeSide, activeTabId);
       }
-    })
-    
-    const handleOpenImage = (e: any) => setViewerData(e.detail)
-    const handleOpenText = (e: any) => setEditingFile(e.detail)
-    
-    window.addEventListener('open-image', handleOpenImage)
-    window.addEventListener('open-text', handleOpenText)
-    
+    });
+
+    const handleOpenImage = (e: any) => setViewerData(e.detail);
+    const handleOpenText = (e: any) => setEditingFile(e.detail);
+
+    window.addEventListener("open-image", handleOpenImage);
+    window.addEventListener("open-text", handleOpenText);
+
     return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-      hotkeys.unbind('ctrl+t,ctrl+f,ctrl+1,ctrl+2,ctrl+3,ctrl+4')
-      window.removeEventListener('open-image', handleOpenImage)
-      window.removeEventListener('open-text', handleOpenText)
-    }
-  }, [])
+      window.removeEventListener("keydown", handleKeyDown);
+      hotkeys.unbind("ctrl+t,ctrl+f,ctrl+1,ctrl+2,ctrl+3,ctrl+4");
+      window.removeEventListener("open-image", handleOpenImage);
+      window.removeEventListener("open-text", handleOpenText);
+    };
+  }, []);
 
   return (
-    <div className={clsx("h-screen flex flex-col overflow-hidden select-none", theme)}>
+    <div
+      className={clsx(
+        "h-screen flex flex-col overflow-hidden select-none",
+        theme,
+      )}
+    >
       <div className="flex-1 flex overflow-hidden bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-        
         {/* Custom Title Bar / Header */}
         <header className="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center px-4 fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md drag">
           <div className="flex items-center gap-3 no-drag">
-            <div className="bg-primary-500 p-1.5 rounded-lg shadow-lg shadow-primary-500/20 cursor-pointer" onClick={() => setActiveView('explorer')}>
+            <div
+              className="bg-primary-500 p-1.5 rounded-lg shadow-lg shadow-primary-500/20 cursor-pointer"
+              onClick={() => setActiveView("explorer")}
+            >
               <LayoutDashboard size={20} className="text-white" />
             </div>
-            <h1 className="font-bold text-lg tracking-tight">Smart<span className="text-primary-500 ml-0.5">Explorer</span></h1>
+            <h1 className="font-bold text-lg tracking-tight">
+              Smart<span className="text-primary-500 ml-0.5">Explorer</span>
+            </h1>
           </div>
 
           <div className="mx-12 flex-1 max-w-xl no-drag">
             <div className="relative group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary-500 transition-colors" size={18} />
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary-500 transition-colors"
+                size={18}
+              />
               <input
                 type="text"
                 placeholder="Search files, folders..."
@@ -165,40 +208,38 @@ const App: React.FC = () => {
             <button className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
               <Bell size={20} />
             </button>
-            <button 
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            <button
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
               title="Toggle Theme"
             >
-              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+              {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            <button 
+            <button
               onClick={toggleDualPane}
               className={clsx(
                 "p-2 rounded-lg transition-all",
                 dualPane && paneCount !== 4
-                  ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20" 
-                  : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+                  ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20"
+                  : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500",
               )}
               title={dualPane ? "Switch to Single Pane" : "Switch to Dual Pane"}
             >
               <Columns size={20} />
             </button>
-            <button 
+            <button
               onClick={toggleQuadPane}
               className={clsx(
                 "p-2 rounded-lg transition-all",
                 paneCount === 4
-                  ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20" 
-                  : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+                  ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20"
+                  : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500",
               )}
               title="Toggle Quad View"
             >
               <Grid size={20} />
             </button>
-            <button 
-              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
-            >
+            <button className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
               <Settings size={20} />
             </button>
             <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-primary-500 to-indigo-500 ml-2 border border-white dark:border-slate-700 shadow-sm cursor-pointer" />
@@ -209,20 +250,25 @@ const App: React.FC = () => {
           <Sidebar
             collapsed={sidebarCollapsed}
             setCollapsed={setSidebarCollapsed}
-            onOpenAnalyzer={(path) => { setAnalyzerPath(path); setActiveView('analyzer'); }}
+            onOpenAnalyzer={(path) => {
+              setAnalyzerPath(path);
+              setActiveView("analyzer");
+            }}
           />
-          
+
           <main className="flex-1 flex min-w-0 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 relative">
             <AnimatePresence mode="wait">
-              {activeView === 'explorer' && (
-                <motion.div 
+              {activeView === "explorer" && (
+                <motion.div
                   key="explorer"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   className={clsx(
                     "flex-1 min-w-0 overflow-hidden",
-                    paneCount === 4 ? "flex gap-1 bg-slate-200 dark:bg-slate-800 relative" : "flex"
+                    paneCount === 4
+                      ? "flex gap-1 bg-slate-200 dark:bg-slate-800 relative"
+                      : "flex",
                   )}
                   ref={paneCount === 4 ? explorerContainerRef : undefined}
                 >
@@ -247,12 +293,22 @@ const App: React.FC = () => {
                         <FilePanel side="bottomLeft" />
                         <div
                           className="absolute left-0 right-0 h-2 bg-transparent hover:bg-primary-500/50 cursor-row-resize z-20"
-                          style={{ top: `${gridSplit.leftRow}%`, transform: 'translateY(-50%)', touchAction: 'none' }}
+                          style={{
+                            top: `${gridSplit.leftRow}%`,
+                            transform: "translateY(-50%)",
+                            touchAction: "none",
+                          }}
                           onPointerDown={(e) => {
-                            dragAxisRef.current = 'leftRow'
-                            e.preventDefault()
-                            window.addEventListener('pointermove', handleGridPointerMove)
-                            window.addEventListener('pointerup', handleGridPointerUp)
+                            dragAxisRef.current = "leftRow";
+                            e.preventDefault();
+                            window.addEventListener(
+                              "pointermove",
+                              handleGridPointerMove,
+                            );
+                            window.addEventListener(
+                              "pointerup",
+                              handleGridPointerUp,
+                            );
                           }}
                         />
                       </div>
@@ -269,42 +325,65 @@ const App: React.FC = () => {
                         <FilePanel side="bottomRight" />
                         <div
                           className="absolute left-0 right-0 h-2 bg-transparent hover:bg-primary-500/50 cursor-row-resize z-20"
-                          style={{ top: `${gridSplit.rightRow}%`, transform: 'translateY(-50%)', touchAction: 'none' }}
+                          style={{
+                            top: `${gridSplit.rightRow}%`,
+                            transform: "translateY(-50%)",
+                            touchAction: "none",
+                          }}
                           onPointerDown={(e) => {
-                            dragAxisRef.current = 'rightRow'
-                            e.preventDefault()
-                            window.addEventListener('pointermove', handleGridPointerMove)
-                            window.addEventListener('pointerup', handleGridPointerUp)
+                            dragAxisRef.current = "rightRow";
+                            e.preventDefault();
+                            window.addEventListener(
+                              "pointermove",
+                              handleGridPointerMove,
+                            );
+                            window.addEventListener(
+                              "pointerup",
+                              handleGridPointerUp,
+                            );
                           }}
                         />
                       </div>
                       <div
                         className="absolute top-0 bottom-0 w-2 bg-transparent hover:bg-primary-500/50 cursor-col-resize z-30"
-                        style={{ left: `${gridSplit.col}%`, transform: 'translateX(-50%)', touchAction: 'none' }}
+                        style={{
+                          left: `${gridSplit.col}%`,
+                          transform: "translateX(-50%)",
+                          touchAction: "none",
+                        }}
                         onPointerDown={(e) => {
-                          dragAxisRef.current = 'col'
-                          e.preventDefault()
-                          window.addEventListener('pointermove', handleGridPointerMove)
-                          window.addEventListener('pointerup', handleGridPointerUp)
+                          dragAxisRef.current = "col";
+                          e.preventDefault();
+                          window.addEventListener(
+                            "pointermove",
+                            handleGridPointerMove,
+                          );
+                          window.addEventListener(
+                            "pointerup",
+                            handleGridPointerUp,
+                          );
                         }}
                       />
                     </>
                   )}
                 </motion.div>
               )}
-              {activeView === 'analyzer' && analyzerPath && (
-                <motion.div 
+              {activeView === "analyzer" && analyzerPath && (
+                <motion.div
                   key="analyzer"
-                  initial={{ x: '100%' }}
+                  initial={{ x: "100%" }}
                   animate={{ x: 0 }}
-                  exit={{ x: '100%' }}
+                  exit={{ x: "100%" }}
                   className="absolute inset-0 z-40 bg-white dark:bg-slate-950"
                 >
-                  <DiskAnalyzer path={analyzerPath} onClose={() => setActiveView('explorer')} />
+                  <DiskAnalyzer
+                    path={analyzerPath}
+                    onClose={() => setActiveView("explorer")}
+                  />
                 </motion.div>
               )}
-              {activeView === 'apps' && (
-                <motion.div 
+              {activeView === "apps" && (
+                <motion.div
                   key="apps"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -314,8 +393,8 @@ const App: React.FC = () => {
                   <AppManager />
                 </motion.div>
               )}
-              {activeView === 'network' && (
-                <motion.div 
+              {activeView === "network" && (
+                <motion.div
                   key="network"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -338,26 +417,26 @@ const App: React.FC = () => {
             exit={{ opacity: 0, scale: 0.9 }}
             className="fixed inset-0 z-[100]"
           >
-            <ImageViewer 
+            <ImageViewer
               items={viewerData.items}
               startIndex={viewerData.index}
-              onClose={() => setViewerData(null)} 
+              onClose={() => setViewerData(null)}
             />
           </motion.div>
         )}
-        
+
         {editingFile && (
           <motion.div
-            initial={{ y: '100%' }}
+            initial={{ y: "100%" }}
             animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", damping: 30, stiffness: 300 }}
             className="fixed inset-0 z-[120]"
           >
-            <TextEditor 
-              path={editingFile.path} 
-              name={editingFile.name} 
-              onClose={() => setEditingFile(null)} 
+            <TextEditor
+              path={editingFile.path}
+              name={editingFile.name}
+              onClose={() => setEditingFile(null)}
             />
           </motion.div>
         )}
@@ -365,16 +444,20 @@ const App: React.FC = () => {
 
       <footer className="h-6 bg-primary-600 text-white flex items-center px-4 text-[10px] font-medium tracking-wide">
         <div className="flex items-center gap-4">
-          <span>{searchQuery ? `Searching for: ${searchQuery}` : 'Ready'}</span>
+          <span>{searchQuery ? `Searching for: ${searchQuery}` : "Ready"}</span>
           <div className="h-3 w-[1px] bg-white/20" />
-          <span>Items Selected: {useStore.getState().leftSelection.length + useStore.getState().rightSelection.length}</span>
+          <span>
+            Items Selected:{" "}
+            {useStore.getState().leftSelection.length +
+              useStore.getState().rightSelection.length}
+          </span>
         </div>
         <div className="ml-auto flex items-center gap-3">
           <span>Win64 v1.0.0</span>
         </div>
       </footer>
     </div>
-  )
-}
+  );
+};
 
-export default App
+export default App;
