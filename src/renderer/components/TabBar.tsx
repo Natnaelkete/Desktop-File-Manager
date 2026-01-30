@@ -4,24 +4,58 @@ import { useStore } from "../stores/store";
 import { clsx } from "clsx";
 
 interface TabBarProps {
-  side: "left" | "right";
+  side: "left" | "right" | "bottomLeft" | "bottomRight";
 }
 
 const TabBar: React.FC<TabBarProps> = ({ side }) => {
-  const tabs = useStore((state) =>
-    side === "left" ? state.leftTabs : state.rightTabs,
-  );
-  const activeTabId = useStore((state) =>
-    side === "left" ? state.activeLeftTabId : state.activeRightTabId,
-  );
-  const { setActiveTab, closeTab, addTab } = useStore();
+  const tabs = useStore((state: any) => {
+    if (side === "left") return state.leftTabs;
+    if (side === "right") return state.rightTabs;
+    if (side === "bottomLeft") return state.bottomLeftTabs;
+    return state.bottomRightTabs;
+  });
+  const activeTabId = useStore((state: any) => {
+    if (side === "left") return state.activeLeftTabId;
+    if (side === "right") return state.activeRightTabId;
+    if (side === "bottomLeft") return state.activeBottomLeftTabId;
+    return state.activeBottomRightTabId;
+  });
+  const { setActiveTab, closeTab, addTab, moveTab } = useStore();
+
+  const handleDragStart = (
+    e: React.DragEvent<HTMLDivElement>,
+    tabId: string,
+  ) => {
+    e.dataTransfer.setData("text/plain", JSON.stringify({ tabId, fromSide: side }));
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const data = e.dataTransfer.getData("text/plain");
+    if (!data) return;
+
+    try {
+      const payload = JSON.parse(data) as { tabId: string; fromSide: TabBarProps["side"] };
+      if (!payload?.tabId || !payload?.fromSide) return;
+      moveTab(payload.fromSide, side, payload.tabId);
+    } catch {
+      // ignore invalid payloads
+    }
+  };
 
   return (
-    <div className="flex items-center bg-slate-100 dark:bg-slate-950 px-2 gap-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-drag h-10 scrollbar-none">
+    <div
+      className="flex items-center bg-slate-100 dark:bg-slate-950 px-2 gap-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-drag h-10 scrollbar-none"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleDrop}
+    >
       {tabs.map((tab) => (
         <div
           key={tab.id}
           onClick={() => setActiveTab(side, tab.id)}
+          draggable
+          onDragStart={(e) => handleDragStart(e, tab.id)}
           className={clsx(
             "flex items-center gap-2 px-3 py-1.5 rounded-t-lg text-xs font-medium cursor-pointer transition-all min-w-[120px] max-w-[200px] group border-x border-t",
             activeTabId === tab.id

@@ -4,7 +4,7 @@ import { FileItem, useStore } from '../stores/store'
 // Request deduplication map
 const pendingRequests = new Map<string, Promise<any>>()
 
-export const useFileBrowser = (side: 'left' | 'right', tabId: string) => {
+export const useFileBrowser = (side: 'left' | 'right' | 'bottomLeft' | 'bottomRight', tabId: string) => {
   const { updateTabFiles } = useStore()
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const lastPathRef = useRef<string>('')
@@ -40,8 +40,15 @@ export const useFileBrowser = (side: 'left' | 'right', tabId: string) => {
           const files = await filesPromise
           
           // CRITICAL: Get current state to check if path changed while waiting
-          const currentState = useStore.getState()
-          const currentTab = (side === 'left' ? currentState.leftTabs : currentState.rightTabs).find(t => t.id === tabId)
+          const currentState = useStore.getState() as any
+          let tabs = [];
+          
+          if (side === 'left') tabs = currentState.leftTabs;
+          else if (side === 'right') tabs = currentState.rightTabs;
+          else if (side === 'bottomLeft') tabs = currentState.bottomLeftTabs;
+          else tabs = currentState.bottomRightTabs;
+          
+          const currentTab = tabs.find((t: any) => t.id === tabId)
           
           if (currentTab && currentTab.path === path) {
             updateTabFiles(side, tabId, files)

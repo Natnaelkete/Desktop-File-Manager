@@ -46,7 +46,7 @@ import { FixedSizeList as List, areEqual } from "react-window";
 import { AutoSizer } from "react-virtualized-auto-sizer";
 
 interface FilePanelProps {
-  side: "left" | "right";
+  side: "left" | "right" | "bottomLeft" | "bottomRight";
 }
 
 const FileRow = memo(
@@ -121,25 +121,41 @@ const FileRow = memo(
 );
 
 const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
-  const activeTabId = useStore((state: any) =>
-    side === "left" ? state.activeLeftTabId : state.activeRightTabId,
-  );
-  const tab = useStore((state: any) =>
-    (side === "left" ? state.leftTabs : state.rightTabs).find(
-      (t: any) => t.id === activeTabId,
-    ),
-  );
-  const viewMode = useStore((state: any) =>
-    side === "left" ? state.leftViewMode : state.rightViewMode,
-  );
+  const activeTabId = useStore((state: any) => {
+    if (side === "left") return state.activeLeftTabId;
+    if (side === "right") return state.activeRightTabId;
+    if (side === "bottomLeft") return state.activeBottomLeftTabId;
+    return state.activeBottomRightTabId;
+  });
+  
+  const tab = useStore((state: any) => {
+    let tabs = [];
+    if (side === "left") tabs = state.leftTabs;
+    else if (side === "right") tabs = state.rightTabs;
+    else if (side === "bottomLeft") tabs = state.bottomLeftTabs;
+    else tabs = state.bottomRightTabs;
+    
+    return tabs.find((t: any) => t.id === activeTabId);
+  });
+
+  const viewMode = useStore((state: any) => {
+    if (side === "left") return state.leftViewMode;
+    if (side === "right") return state.rightViewMode;
+    if (side === "bottomLeft") return state.bottomLeftViewMode;
+    return state.bottomRightViewMode;
+  });
+
   const showHidden = useStore((state: any) => state.showHidden);
-  const selection = useStore((state: any) =>
-    side === "left" ? state.leftSelection : state.rightSelection,
-  );
+
+  const selection = useStore((state: any) => {
+    if (side === "left") return state.leftSelection;
+    if (side === "right") return state.rightSelection;
+    if (side === "bottomLeft") return state.bottomLeftSelection;
+    return state.bottomRightSelection;
+  });
   const {
     navigateTo,
-    setLeftViewMode,
-    setRightViewMode,
+    setViewMode,
     setSelection,
     toggleHidden,
     setActiveSide,
@@ -150,15 +166,27 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     cutSelection,
     clearClipboard,
   } = useStore();
-  const gridSize = useStore((state: any) =>
-    side === "left" ? state.leftGridSize : state.rightGridSize,
-  );
-  const sortBy = useStore((state: any) =>
-    side === "left" ? state.leftSortBy : state.rightSortBy,
-  );
-  const sortOrder = useStore((state: any) =>
-    side === "left" ? state.leftSortOrder : state.rightSortOrder,
-  );
+  
+  const gridSize = useStore((state: any) => {
+    if (side === "left") return state.leftGridSize;
+    if (side === "right") return state.rightGridSize;
+    if (side === "bottomLeft") return state.bottomLeftGridSize;
+    return state.bottomRightGridSize;
+  });
+  
+  const sortBy = useStore((state: any) => {
+    if (side === "left") return state.leftSortBy;
+    if (side === "right") return state.rightSortBy;
+    if (side === "bottomLeft") return state.bottomLeftSortBy;
+    return state.bottomRightSortBy;
+  });
+
+  const sortOrder = useStore((state: any) => {
+    if (side === "left") return state.leftSortOrder;
+    if (side === "right") return state.rightSortOrder;
+    if (side === "bottomLeft") return state.bottomLeftSortOrder;
+    return state.bottomRightSortOrder;
+  });
   const { refresh } = useFileBrowser(side, activeTabId);
 
   const [menuPos, setMenuPos] = useState<{
@@ -330,12 +358,10 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     if (action.startsWith("view-")) {
       const mode = action.replace("view-", "");
       if (["xl", "large", "medium", "small"].includes(mode)) {
-        if (side === "left") setLeftViewMode("grid");
-        else setRightViewMode("grid");
+        setViewMode(side, "grid");
         setGridSize(side, mode as any);
       } else if (mode === "list" || mode === "details") {
-        if (side === "left") setLeftViewMode("list");
-        else setRightViewMode("list");
+        setViewMode(side, "list");
       }
       setMenuPos(null);
       return;
@@ -717,11 +743,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
             </button>
             <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1 z-50 opacity-0 invisible group-hover/view:opacity-100 group-hover/view:visible transition-all">
               <button
-                onClick={() =>
-                  side === "left"
-                    ? setLeftViewMode("list")
-                    : setRightViewMode("list")
-                }
+                onClick={() => setViewMode(side, "list")}
                 className={clsx(
                   "w-full text-left px-3 py-1.5 text-[11px] hover:bg-primary-50 dark:hover:bg-primary-900/20 flex items-center gap-2",
                   viewMode === "list"
@@ -736,10 +758,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
                 <button
                   key={sz}
                   onClick={() => {
-                    if (viewMode !== "grid")
-                      side === "left"
-                        ? setLeftViewMode("grid")
-                        : setRightViewMode("grid");
+                    if (viewMode !== "grid") setViewMode(side, "grid");
                     setGridSize(side, sz as any);
                   }}
                   className={clsx(

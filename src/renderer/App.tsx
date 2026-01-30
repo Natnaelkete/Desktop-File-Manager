@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Sidebar from './components/Sidebar'
 import FilePanel from './components/FilePanel'
@@ -15,7 +15,8 @@ import {
   Settings, 
   LayoutDashboard,
   Bell,
-  Columns
+  Columns,
+  Grid
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import hotkeys from 'hotkeys-js'
@@ -25,11 +26,56 @@ const App: React.FC = () => {
   const { 
     theme, setTheme, searchQuery, setSearchQuery, activeView, setActiveView,
     activeSide, activeLeftTabId, activeRightTabId, goBack, goForward,
-    dualPane, toggleDualPane
+    dualPane, toggleDualPane, toggleQuadPane, paneCount
   } = useStore()
   const [analyzerPath, setAnalyzerPath] = useState<string | null>(null)
   const [viewerData, setViewerData] = useState<{ items: any[], index: number } | null>(null)
   const [editingFile, setEditingFile] = useState<any>(null)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const explorerContainerRef = useRef<HTMLDivElement | null>(null)
+  const leftColRef = useRef<HTMLDivElement | null>(null)
+  const rightColRef = useRef<HTMLDivElement | null>(null)
+  const [gridSplit, setGridSplit] = useState({ col: 50, leftRow: 50, rightRow: 50 })
+  const dragAxisRef = useRef<'col' | 'leftRow' | 'rightRow' | null>(null)
+
+  const handleGridPointerMove = useCallback((e: PointerEvent) => {
+    if (!dragAxisRef.current) return
+
+    if (dragAxisRef.current === 'col') {
+      const container = explorerContainerRef.current
+      if (!container) return
+      const rect = container.getBoundingClientRect()
+      const next = ((e.clientX - rect.left) / rect.width) * 100
+      const clamped = Math.min(80, Math.max(20, next))
+      setGridSplit((prev) => ({ ...prev, col: clamped }))
+      return
+    }
+
+    if (dragAxisRef.current === 'leftRow') {
+      const col = leftColRef.current
+      if (!col) return
+      const rect = col.getBoundingClientRect()
+      const next = ((e.clientY - rect.top) / rect.height) * 100
+      const clamped = Math.min(80, Math.max(20, next))
+      setGridSplit((prev) => ({ ...prev, leftRow: clamped }))
+      return
+    }
+
+    if (dragAxisRef.current === 'rightRow') {
+      const col = rightColRef.current
+      if (!col) return
+      const rect = col.getBoundingClientRect()
+      const next = ((e.clientY - rect.top) / rect.height) * 100
+      const clamped = Math.min(80, Math.max(20, next))
+      setGridSplit((prev) => ({ ...prev, rightRow: clamped }))
+    }
+  }, [])
+
+  const handleGridPointerUp = useCallback(() => {
+    dragAxisRef.current = null
+    window.removeEventListener('pointermove', handleGridPointerMove)
+    window.removeEventListener('pointerup', handleGridPointerUp)
+  }, [handleGridPointerMove])
 
   useEffect(() => {
     // Keyboard navigation
@@ -130,7 +176,7 @@ const App: React.FC = () => {
               onClick={toggleDualPane}
               className={clsx(
                 "p-2 rounded-lg transition-all",
-                dualPane 
+                dualPane && paneCount !== 4
                   ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20" 
                   : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
               )}
@@ -138,7 +184,21 @@ const App: React.FC = () => {
             >
               <Columns size={20} />
             </button>
-            <button className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
+            <button 
+              onClick={toggleQuadPane}
+              className={clsx(
+                "p-2 rounded-lg transition-all",
+                paneCount === 4
+                  ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20" 
+                  : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+              )}
+              title="Toggle Quad View"
+            >
+              <Grid size={20} />
+            </button>
+            <button 
+              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+            >
               <Settings size={20} />
             </button>
             <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-primary-500 to-indigo-500 ml-2 border border-white dark:border-slate-700 shadow-sm cursor-pointer" />
@@ -146,7 +206,11 @@ const App: React.FC = () => {
         </header>
 
         <div className="flex-1 flex mt-14 overflow-hidden">
-          <Sidebar onOpenAnalyzer={(path) => { setAnalyzerPath(path); setActiveView('analyzer'); }} />
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            setCollapsed={setSidebarCollapsed}
+            onOpenAnalyzer={(path) => { setAnalyzerPath(path); setActiveView('analyzer'); }}
+          />
           
           <main className="flex-1 flex min-w-0 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 relative">
             <AnimatePresence mode="wait">
@@ -156,10 +220,76 @@ const App: React.FC = () => {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="flex-1 flex min-w-0"
+                  className={clsx(
+                    "flex-1 min-w-0 overflow-hidden",
+                    paneCount === 4 ? "flex gap-1 bg-slate-200 dark:bg-slate-800 relative" : "flex"
+                  )}
+                  ref={paneCount === 4 ? explorerContainerRef : undefined}
                 >
-                  <FilePanel side="left" />
-                  {dualPane && <FilePanel side="right" />}
+                  {paneCount !== 4 && (
+                    <>
+                      <FilePanel side="left" />
+                      {dualPane && <FilePanel side="right" />}
+                    </>
+                  )}
+                  {paneCount === 4 && (
+                    <>
+                      <div
+                        ref={leftColRef}
+                        className="relative grid min-w-0"
+                        style={{
+                          gridTemplateRows: `${gridSplit.leftRow}% ${100 - gridSplit.leftRow}%`,
+                          width: `${gridSplit.col}%`,
+                          minHeight: 0,
+                        }}
+                      >
+                        <FilePanel side="left" />
+                        <FilePanel side="bottomLeft" />
+                        <div
+                          className="absolute left-0 right-0 h-2 bg-transparent hover:bg-primary-500/50 cursor-row-resize z-20"
+                          style={{ top: `${gridSplit.leftRow}%`, transform: 'translateY(-50%)', touchAction: 'none' }}
+                          onPointerDown={(e) => {
+                            dragAxisRef.current = 'leftRow'
+                            e.preventDefault()
+                            window.addEventListener('pointermove', handleGridPointerMove)
+                            window.addEventListener('pointerup', handleGridPointerUp)
+                          }}
+                        />
+                      </div>
+                      <div
+                        ref={rightColRef}
+                        className="relative grid min-w-0"
+                        style={{
+                          gridTemplateRows: `${gridSplit.rightRow}% ${100 - gridSplit.rightRow}%`,
+                          width: `${100 - gridSplit.col}%`,
+                          minHeight: 0,
+                        }}
+                      >
+                        <FilePanel side="right" />
+                        <FilePanel side="bottomRight" />
+                        <div
+                          className="absolute left-0 right-0 h-2 bg-transparent hover:bg-primary-500/50 cursor-row-resize z-20"
+                          style={{ top: `${gridSplit.rightRow}%`, transform: 'translateY(-50%)', touchAction: 'none' }}
+                          onPointerDown={(e) => {
+                            dragAxisRef.current = 'rightRow'
+                            e.preventDefault()
+                            window.addEventListener('pointermove', handleGridPointerMove)
+                            window.addEventListener('pointerup', handleGridPointerUp)
+                          }}
+                        />
+                      </div>
+                      <div
+                        className="absolute top-0 bottom-0 w-2 bg-transparent hover:bg-primary-500/50 cursor-col-resize z-30"
+                        style={{ left: `${gridSplit.col}%`, transform: 'translateX(-50%)', touchAction: 'none' }}
+                        onPointerDown={(e) => {
+                          dragAxisRef.current = 'col'
+                          e.preventDefault()
+                          window.addEventListener('pointermove', handleGridPointerMove)
+                          window.addEventListener('pointerup', handleGridPointerUp)
+                        }}
+                      />
+                    </>
+                  )}
                 </motion.div>
               )}
               {activeView === 'analyzer' && analyzerPath && (
