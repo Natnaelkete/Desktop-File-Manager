@@ -254,12 +254,12 @@ ipcMain.handle("quick-action", async (_event, action: string, payload: any) => {
     const parsed = path.parse(filePath);
 
     if (action === "convert-image") {
-        let sharp: any;
-        try {
-          ({ default: sharp } = await import("sharp"));
-        } catch (e: any) {
-          return { error: "SHARP_NOT_AVAILABLE" };
-        }
+      let sharp: any;
+      try {
+        ({ default: sharp } = await import("sharp"));
+      } catch (e: any) {
+        return { error: "SHARP_NOT_AVAILABLE" };
+      }
       const format = String(payload?.format || "png").toLowerCase();
       const allowed = ["png", "jpg", "jpeg", "webp"];
       if (!allowed.includes(format)) return { error: "INVALID_FORMAT" };
@@ -276,12 +276,12 @@ ipcMain.handle("quick-action", async (_event, action: string, payload: any) => {
     }
 
     if (action === "resize-image") {
-        let sharp: any;
-        try {
-          ({ default: sharp } = await import("sharp"));
-        } catch (e: any) {
-          return { error: "SHARP_NOT_AVAILABLE" };
-        }
+      let sharp: any;
+      try {
+        ({ default: sharp } = await import("sharp"));
+      } catch (e: any) {
+        return { error: "SHARP_NOT_AVAILABLE" };
+      }
       const scale = Number(payload?.scale || 1);
       if (!scale || scale <= 0 || scale >= 1.01) {
         return { error: "INVALID_SCALE" };
@@ -1005,45 +1005,51 @@ const getInstalledAppsInternal = async () => {
   }
 };
 
-ipcMain.handle("get-installed-apps", async (_event, options?: { force?: boolean }) => {
-  const force = options?.force === true;
-  const cacheFresh = installedAppsCache.data.length > 0 &&
-    Date.now() - installedAppsCache.ts < 5 * 60 * 1000;
+ipcMain.handle(
+  "get-installed-apps",
+  async (_event, options?: { force?: boolean }) => {
+    const force = options?.force === true;
+    const cacheFresh =
+      installedAppsCache.data.length > 0 &&
+      Date.now() - installedAppsCache.ts < 5 * 60 * 1000;
 
-  if (!force && cacheFresh) {
-    return installedAppsCache.data;
-  }
-
-  if (!force && installedAppsCache.data.length > 0) {
-    warmInstalledAppsCache();
-    return installedAppsCache.data;
-  }
-
-  if (!installedAppsInFlight) {
-    installedAppsInFlight = getInstalledAppsInternal().then((apps) => {
-      installedAppsCache.data = apps;
-      installedAppsCache.ts = Date.now();
-      saveInstalledAppsCache();
-      return apps;
-    }).finally(() => {
-      installedAppsInFlight = null;
-    });
-  }
-
-  const inFlight = installedAppsInFlight;
-  const result = await withTimeout(inFlight, 12000);
-  if (result === "__timeout__") {
-    if (installedAppsCache.data.length > 0) {
+    if (!force && cacheFresh) {
       return installedAppsCache.data;
     }
-    try {
-      return inFlight ? await inFlight : [];
-    } catch {
-      return [];
+
+    if (!force && installedAppsCache.data.length > 0) {
+      warmInstalledAppsCache();
+      return installedAppsCache.data;
     }
-  }
-  return result;
-});
+
+    if (!installedAppsInFlight) {
+      installedAppsInFlight = getInstalledAppsInternal()
+        .then((apps) => {
+          installedAppsCache.data = apps;
+          installedAppsCache.ts = Date.now();
+          saveInstalledAppsCache();
+          return apps;
+        })
+        .finally(() => {
+          installedAppsInFlight = null;
+        });
+    }
+
+    const inFlight = installedAppsInFlight;
+    const result = await withTimeout(inFlight, 12000);
+    if (result === "__timeout__") {
+      if (installedAppsCache.data.length > 0) {
+        return installedAppsCache.data;
+      }
+      try {
+        return inFlight ? await inFlight : [];
+      } catch {
+        return [];
+      }
+    }
+    return result;
+  },
+);
 
 ipcMain.handle("run-uninstaller", async (_event, uninstallString: string) => {
   return new Promise((resolve) => {
