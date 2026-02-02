@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("get-open-with-apps", path),
   openWithApp: (appPath: string, path: string) =>
     ipcRenderer.invoke("open-with-app", appPath, path),
+  openTerminal: (path: string) => ipcRenderer.invoke("open-terminal", path),
+  quickAction: (action: string, payload: any) =>
+    ipcRenderer.invoke("quick-action", action, payload),
   searchFiles: (dirPath: string, query: string) =>
     ipcRenderer.invoke("search-files", dirPath, query),
   getFileHash: (filePath: string, algorithm: string) =>
@@ -34,7 +37,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("reveal-in-explorer", path),
   deleteFilesBulk: (paths: string[]) =>
     ipcRenderer.invoke("delete-files-bulk", paths),
-  getInstalledApps: () => ipcRenderer.invoke("get-installed-apps"),
+  getInstalledApps: (options?: { force?: boolean }) =>
+    ipcRenderer.invoke("get-installed-apps", options),
   runUninstaller: (uninstallString: string) =>
     ipcRenderer.invoke("run-uninstaller", uninstallString),
   findAppLeftovers: (appName: string, installLocation?: string) =>

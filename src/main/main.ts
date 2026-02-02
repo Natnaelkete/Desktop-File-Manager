@@ -21,6 +21,7 @@ const regList = (keys: string[]) =>
   });
 import { promisify } from "node:util";
 import crypto from "node:crypto";
+import { PDFDocument } from "pdf-lib";
 
 // Register privileged schemes
 protocol.registerSchemesAsPrivileged([
@@ -38,6 +39,66 @@ protocol.registerSchemesAsPrivileged([
 
 const lastScanCache = {
   duplicateGroups: [] as string[][],
+};
+const installedAppsCache = {
+  data: [] as any[],
+  ts: 0,
+};
+let installedAppsInFlight: Promise<any[]> | null = null;
+let installedAppsCacheLoaded = false;
+
+const getInstalledAppsCachePath = () =>
+  path.join(app.getPath("userData"), "installedAppsCache.json");
+
+const loadInstalledAppsCache = async () => {
+  if (installedAppsCacheLoaded) return;
+  installedAppsCacheLoaded = true;
+  try {
+    const raw = await fs.readFile(getInstalledAppsCachePath(), "utf8");
+    const payload = JSON.parse(raw);
+    if (Array.isArray(payload?.data)) {
+      installedAppsCache.data = payload.data;
+      installedAppsCache.ts = Number(payload.ts || 0);
+    }
+  } catch {
+    // ignore cache read errors
+  }
+};
+
+const saveInstalledAppsCache = async () => {
+  try {
+    const payload = {
+      data: installedAppsCache.data,
+      ts: installedAppsCache.ts,
+    };
+    await fs.writeFile(getInstalledAppsCachePath(), JSON.stringify(payload));
+  } catch {
+    // ignore cache write errors
+  }
+};
+
+const warmInstalledAppsCache = () => {
+  if (installedAppsInFlight) return;
+  installedAppsInFlight = getInstalledAppsInternal()
+    .then((apps) => {
+      installedAppsCache.data = apps;
+      installedAppsCache.ts = Date.now();
+      saveInstalledAppsCache();
+      return apps;
+    })
+    .finally(() => {
+      installedAppsInFlight = null;
+    });
+};
+
+const withTimeout = async <T>(promise: Promise<T>, ms: number) => {
+  let timeoutId: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<"__timeout__">((resolve) => {
+    timeoutId = setTimeout(() => resolve("__timeout__"), ms);
+  });
+  const result = await Promise.race([promise, timeoutPromise]);
+  if (timeoutId) clearTimeout(timeoutId);
+  return result;
 };
 ipcMain.handle("read-file", async (_event, filePath: string) => {
   try {
@@ -158,6 +219,106 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle("open-terminal", async (_event, dirPath: string) => {
+  try {
+    const targetDir = fs_native.existsSync(dirPath)
+      ? dirPath
+      : path.dirname(dirPath);
+    if (process.platform === "win32") {
+      const child = spawn(
+        "cmd.exe",
+        ["/c", "start", "", "/D", targetDir, "cmd.exe", "/K"],
+        {
+          windowsHide: false,
+          detached: true,
+          stdio: "ignore",
+        },
+      );
+      child.unref();
+      return { success: true };
+    }
+
+    await shell.openPath(targetDir);
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("quick-action", async (_event, action: string, payload: any) => {
+  try {
+    const filePath = payload?.filePath as string;
+    if (!filePath) return { error: "NO_FILE" };
+
+    const dir = path.dirname(filePath);
+    const parsed = path.parse(filePath);
+
+    if (action === "convert-image") {
+        let sharp: any;
+        try {
+          ({ default: sharp } = await import("sharp"));
+        } catch (e: any) {
+          return { error: "SHARP_NOT_AVAILABLE" };
+        }
+      const format = String(payload?.format || "png").toLowerCase();
+      const allowed = ["png", "jpg", "jpeg", "webp"];
+      if (!allowed.includes(format)) return { error: "INVALID_FORMAT" };
+      const targetExt = format === "jpeg" ? "jpg" : format;
+      const basePath = path.join(dir, `${parsed.name}_converted.${targetExt}`);
+      const outputPath = ensureUniquePath(basePath);
+
+      const img = sharp(filePath);
+      if (targetExt === "png") await img.png().toFile(outputPath);
+      else if (targetExt === "webp") await img.webp().toFile(outputPath);
+      else await img.jpeg({ quality: 90 }).toFile(outputPath);
+
+      return { success: true, outputPath };
+    }
+
+    if (action === "resize-image") {
+        let sharp: any;
+        try {
+          ({ default: sharp } = await import("sharp"));
+        } catch (e: any) {
+          return { error: "SHARP_NOT_AVAILABLE" };
+        }
+      const scale = Number(payload?.scale || 1);
+      if (!scale || scale <= 0 || scale >= 1.01) {
+        return { error: "INVALID_SCALE" };
+      }
+      const meta = await sharp(filePath).metadata();
+      const width = meta.width || 1024;
+      const height = meta.height || 1024;
+      const nextWidth = Math.max(1, Math.round(width * scale));
+      const nextHeight = Math.max(1, Math.round(height * scale));
+
+      const basePath = path.join(
+        dir,
+        `${parsed.name}_resized_${Math.round(scale * 100)}${parsed.ext}`,
+      );
+      const outputPath = ensureUniquePath(basePath);
+      await sharp(filePath)
+        .resize({ width: nextWidth, height: nextHeight })
+        .toFile(outputPath);
+      return { success: true, outputPath };
+    }
+
+    if (action === "optimize-pdf") {
+      const data = await fs.readFile(filePath);
+      const pdf = await PDFDocument.load(data);
+      const outputBytes = await pdf.save({ useObjectStreams: true });
+      const basePath = path.join(dir, `${parsed.name}_optimized.pdf`);
+      const outputPath = ensureUniquePath(basePath);
+      await fs.writeFile(outputPath, outputBytes);
+      return { success: true, outputPath };
+    }
+
+    return { error: "UNKNOWN_ACTION" };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
 ipcMain.handle(
   "write-file",
   async (_event, filePath: string, content: string) => {
@@ -169,6 +330,24 @@ ipcMain.handle(
     }
   },
 );
+
+const ensureUniquePath = (targetPath: string) => {
+  if (!fs_native.existsSync(targetPath)) return targetPath;
+  const parsed = path.parse(targetPath);
+  let counter = 1;
+  let nextPath = path.join(
+    parsed.dir,
+    `${parsed.name} (${counter})${parsed.ext}`,
+  );
+  while (fs_native.existsSync(nextPath)) {
+    counter += 1;
+    nextPath = path.join(
+      parsed.dir,
+      `${parsed.name} (${counter})${parsed.ext}`,
+    );
+  }
+  return nextPath;
+};
 
 const execAsync = promisify(exec);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -251,6 +430,9 @@ app.whenReady().then(() => {
     }
   });
 
+  loadInstalledAppsCache().finally(() => {
+    warmInstalledAppsCache();
+  });
   createWindow();
 });
 
@@ -404,6 +586,35 @@ ipcMain.handle("delete-items-permanently", async (_event, paths: string[]) => {
     for (const dir of parentDirs) {
       dirCache.delete(dir);
     }
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("delete-files-bulk", async (_event, paths: string[]) => {
+  try {
+    const parentDirs = new Set<string>();
+    const results = await Promise.allSettled(
+      (paths || []).map(async (p) => {
+        await fs.rm(p, { recursive: true, force: true });
+        parentDirs.add(path.dirname(p));
+      }),
+    );
+
+    for (const dir of parentDirs) {
+      dirCache.delete(dir);
+    }
+
+    const failed = results
+      .map((r, i) => ({ r, i }))
+      .filter((x) => x.r.status === "rejected")
+      .map((x) => ({ path: paths[x.i], error: (x.r as any).reason?.message }));
+
+    if (failed.length > 0) {
+      return { error: "SOME_FAILED", failed };
+    }
+
     return { success: true };
   } catch (error: any) {
     return { error: error.message };
@@ -794,8 +1005,44 @@ const getInstalledAppsInternal = async () => {
   }
 };
 
-ipcMain.handle("get-installed-apps", async () => {
-  return await getInstalledAppsInternal();
+ipcMain.handle("get-installed-apps", async (_event, options?: { force?: boolean }) => {
+  const force = options?.force === true;
+  const cacheFresh = installedAppsCache.data.length > 0 &&
+    Date.now() - installedAppsCache.ts < 5 * 60 * 1000;
+
+  if (!force && cacheFresh) {
+    return installedAppsCache.data;
+  }
+
+  if (!force && installedAppsCache.data.length > 0) {
+    warmInstalledAppsCache();
+    return installedAppsCache.data;
+  }
+
+  if (!installedAppsInFlight) {
+    installedAppsInFlight = getInstalledAppsInternal().then((apps) => {
+      installedAppsCache.data = apps;
+      installedAppsCache.ts = Date.now();
+      saveInstalledAppsCache();
+      return apps;
+    }).finally(() => {
+      installedAppsInFlight = null;
+    });
+  }
+
+  const inFlight = installedAppsInFlight;
+  const result = await withTimeout(inFlight, 12000);
+  if (result === "__timeout__") {
+    if (installedAppsCache.data.length > 0) {
+      return installedAppsCache.data;
+    }
+    try {
+      return inFlight ? await inFlight : [];
+    } catch {
+      return [];
+    }
+  }
+  return result;
 });
 
 ipcMain.handle("run-uninstaller", async (_event, uninstallString: string) => {

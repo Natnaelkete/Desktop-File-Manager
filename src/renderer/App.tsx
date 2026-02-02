@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Sidebar from "./components/Sidebar";
+import WorkspaceManager from "./components/WorkspaceManager";
 import FilePanel from "./components/FilePanel";
 import DiskAnalyzer from "./components/DiskAnalyzer";
 import ImageViewer from "./components/ImageViewer";
@@ -17,6 +18,7 @@ import {
   Bell,
   Columns,
   Grid,
+  Briefcase,
 } from "lucide-react";
 import { clsx } from "clsx";
 import hotkeys from "hotkeys-js";
@@ -47,6 +49,7 @@ const App: React.FC = () => {
   } | null>(null);
   const [editingFile, setEditingFile] = useState<any>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showWorkspaceManager, setShowWorkspaceManager] = useState(false);
   const explorerContainerRef = useRef<HTMLDivElement | null>(null);
   const leftColRef = useRef<HTMLDivElement | null>(null);
   const rightColRef = useRef<HTMLDivElement | null>(null);
@@ -209,6 +212,13 @@ const App: React.FC = () => {
               <Bell size={20} />
             </button>
             <button
+              onClick={() => setShowWorkspaceManager(true)}
+              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+              title="Project Workspaces"
+            >
+              <Briefcase size={20} />
+            </button>
+            <button
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
               title="Toggle Theme"
@@ -254,6 +264,7 @@ const App: React.FC = () => {
               setAnalyzerPath(path);
               setActiveView("analyzer");
             }}
+            onOpenWorkspaceManager={() => setShowWorkspaceManager(true)}
           />
 
           <main className="flex-1 flex min-w-0 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 relative">
@@ -388,7 +399,7 @@ const App: React.FC = () => {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
-                  className="flex-1"
+                  className="flex-1 min-w-0 overflow-hidden"
                 >
                   <AppManager />
                 </motion.div>
@@ -441,6 +452,10 @@ const App: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {showWorkspaceManager && (
+        <WorkspaceManager onClose={() => setShowWorkspaceManager(false)} />
+      )}
 
       <footer className="h-6 bg-primary-600 text-white flex items-center px-4 text-[10px] font-medium tracking-wide">
         <div className="flex items-center gap-4">

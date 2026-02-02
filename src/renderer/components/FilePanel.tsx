@@ -37,6 +37,7 @@ import VideoThumbnail from "./VideoThumbnail";
 import ContextMenu, { ContextMenuItem } from "./ContextMenu";
 import { FileItem, useStore } from "../stores/store";
 import PropertiesModal from "./PropertiesModal";
+import QuickActionsModal from "./QuickActionsModal";
 import { useFileBrowser } from "../hooks/useFileBrowser";
 import { clsx } from "clsx";
 import TabBar from "./TabBar";
@@ -203,6 +204,9 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
   const [propertiesItems, setPropertiesItems] = useState<FileItem[] | null>(
     null,
   );
+  const [quickActionsFile, setQuickActionsFile] = useState<FileItem | null>(
+    null,
+  );
   const [openWithApps, setOpenWithApps] = useState<
     { name: string; path: string }[]
   >([]);
@@ -281,7 +285,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     if (tab.files.length === 0 || tab.loading) {
       refresh(tab.path);
     }
-  }, [tab?.id, tab?.path]);
+  }, [tab?.id, tab?.path, tab?.loading, tab?.files?.length]);
 
   const loadOpenWithApps = useCallback(async (filePath: string) => {
     if (!filePath) return;
@@ -335,6 +339,31 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
 
   const getMenuItems = useCallback(() => {
     if (menuPos?.type === "file") {
+      const selectedItem = tab.files.find(
+        (f: FileItem) => f.path === selection[0],
+      );
+      const ext = selectedItem?.name.split(".").pop()?.toLowerCase() || "";
+      const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "bmp"];
+      const isImage = imageExts.includes(ext);
+      const isPdf = ext === "pdf";
+      const quickActionsSubmenu: ContextMenuItem[] = [
+        ...(isImage
+          ? [
+              { label: "Convert → PNG", action: "qa-convert:png" },
+              { label: "Convert → JPG", action: "qa-convert:jpg" },
+              { label: "Convert → WEBP", action: "qa-convert:webp" },
+              { separator: true },
+              { label: "Resize 75%", action: "qa-resize:0.75" },
+              { label: "Resize 50%", action: "qa-resize:0.5" },
+              { label: "Resize 25%", action: "qa-resize:0.25" },
+            ]
+          : []),
+        ...(isPdf
+          ? [{ label: "Compress / Optimize PDF", action: "qa-pdf" }]
+          : []),
+        ...(isImage || isPdf ? [{ separator: true }] : []),
+        { label: "Action menu", action: "quick-actions" },
+      ];
       const openWithSubmenu: ContextMenuItem[] = [
         ...(openWithApps.length === 0 && openWithLoading
           ? [{ label: "Loading..." }]
@@ -349,6 +378,15 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       return [
         { label: "Open", icon: ChevronRight, action: "open" },
         { label: "Open with", icon: File, submenu: openWithSubmenu },
+        ...(isImage || isPdf
+          ? [
+              {
+                label: "Quick Actions",
+                icon: Layers,
+                submenu: quickActionsSubmenu,
+              },
+            ]
+          : []),
         { separator: true },
         { label: "Cut", icon: Scissors, action: "cut" },
         { label: "Copy", icon: Copy, action: "copy" },
@@ -407,7 +445,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         { label: "Properties", icon: Info, action: "properties-folder" },
       ] as ContextMenuItem[];
     }
-  }, [menuPos?.type, openWithApps, openWithLoading]);
+  }, [menuPos?.type, openWithApps, openWithLoading, selection, tab.files]);
 
   const handleAction = async (action: string) => {
     // View Actions
@@ -437,6 +475,16 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
 
     if (action === "refresh") {
       refresh(tab.path);
+      setMenuPos(null);
+      return;
+    }
+
+    if (action === "open-terminal") {
+      const targetPath = tab.path;
+      const result = await (window as any).electronAPI.openTerminal(targetPath);
+      if (result && result.error) {
+        alert(`Error opening terminal: ${result.error}`);
+      }
       setMenuPos(null);
       return;
     }
@@ -487,6 +535,54 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
           alert(`Error opening file: ${result.error}`);
         }
       }
+      setMenuPos(null);
+      return;
+    }
+
+    if (action.startsWith("qa-convert:")) {
+      const format = action.replace("qa-convert:", "");
+      if (selection.length > 0) {
+        const result = await (window as any).electronAPI.quickAction(
+          "convert-image",
+          { filePath: selection[0], format },
+        );
+        if (result?.error) alert(`Action failed: ${result.error}`);
+        else if (result?.outputPath) alert(`Saved to: ${result.outputPath}`);
+      }
+      setMenuPos(null);
+      return;
+    }
+
+    if (action.startsWith("qa-resize:")) {
+      const scale = Number(action.replace("qa-resize:", ""));
+      if (selection.length > 0 && scale > 0) {
+        const result = await (window as any).electronAPI.quickAction(
+          "resize-image",
+          { filePath: selection[0], scale },
+        );
+        if (result?.error) alert(`Action failed: ${result.error}`);
+        else if (result?.outputPath) alert(`Saved to: ${result.outputPath}`);
+      }
+      setMenuPos(null);
+      return;
+    }
+
+    if (action === "qa-pdf") {
+      if (selection.length > 0) {
+        const result = await (window as any).electronAPI.quickAction(
+          "optimize-pdf",
+          { filePath: selection[0] },
+        );
+        if (result?.error) alert(`Action failed: ${result.error}`);
+        else if (result?.outputPath) alert(`Saved to: ${result.outputPath}`);
+      }
+      setMenuPos(null);
+      return;
+    }
+
+    if (action === "quick-actions") {
+      const file = tab.files.find((f: FileItem) => f.path === selection[0]);
+      if (file) setQuickActionsFile(file);
       setMenuPos(null);
       return;
     }
@@ -1134,6 +1230,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         <PropertiesModal
           items={propertiesItems}
           onClose={() => setPropertiesItems(null)}
+        />
+      )}
+
+      {quickActionsFile && (
+        <QuickActionsModal
+          file={quickActionsFile}
+          onClose={() => setQuickActionsFile(null)}
         />
       )}
 

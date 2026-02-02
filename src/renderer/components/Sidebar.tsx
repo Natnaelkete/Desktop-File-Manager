@@ -7,7 +7,6 @@ import {
   Monitor,
   PieChart,
   Clock,
-  Star,
   Settings,
   Image as ImageIcon,
   Film,
@@ -16,8 +15,6 @@ import {
   Smartphone,
   Globe,
   Package,
-  Eye,
-  EyeOff,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -34,12 +31,14 @@ interface Drive {
 
 interface SidebarProps {
   onOpenAnalyzer: (path: string) => void;
+  onOpenWorkspaceManager: () => void;
   collapsed?: boolean;
   setCollapsed?: (collapsed: boolean) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
   onOpenAnalyzer,
+  onOpenWorkspaceManager,
   collapsed = false,
   setCollapsed,
 }) => {
@@ -52,8 +51,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     activeSide,
     activeView,
     setActiveView,
-    showHidden,
-    toggleHidden,
+    workspaces,
+    loadWorkspace,
   } = useStore();
 
   useEffect(() => {
@@ -130,7 +129,10 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <div
-        className={clsx("flex-1 overflow-y-auto p-4 pt-0", collapsed && "px-2")}
+        className={clsx(
+          "flex-1 overflow-y-auto overflow-x-hidden p-4 pt-0 no-scrollbar",
+          collapsed && "px-2",
+        )}
       >
         {/* Drives */}
         <section className="mb-6">
@@ -230,6 +232,51 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </section>
 
+        {/* Workspaces */}
+        <section className="mb-6">
+          {!collapsed && (
+            <div className="flex items-center justify-between mb-2 px-2">
+              <h2 className="text-xs font-bold text-slate-400 uppercase">
+                Workspaces
+              </h2>
+              <button
+                onClick={onOpenWorkspaceManager}
+                className="text-[10px] text-primary-500 hover:text-primary-600"
+              >
+                Manage
+              </button>
+            </div>
+          )}
+          <div className="space-y-1">
+            {workspaces.slice(0, 5).map((ws) => (
+              <div
+                key={ws.id}
+                onClick={() => loadWorkspace(ws.id)}
+                className={clsx(
+                  "flex items-center gap-3 p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer transition-colors text-slate-500",
+                  collapsed && "justify-center",
+                )}
+                title={collapsed ? ws.name : undefined}
+              >
+                <Folder size={18} />
+                <span
+                  className={clsx(
+                    "text-sm font-medium truncate",
+                    collapsed && "hidden",
+                  )}
+                >
+                  {ws.name}
+                </span>
+              </div>
+            ))}
+            {workspaces.length === 0 && !collapsed && (
+              <div className="text-[11px] text-slate-400 px-2">
+                No workspaces yet
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* Quick Access */}
         <section className="mb-6">
           {!collapsed && (
@@ -287,31 +334,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             ))}
           </div>
         </section>
-      </div>
-
-      {/* Sidebar Footer / Settings */}
-      <div
-        className={clsx(
-          "p-4 border-t border-slate-200 dark:border-slate-800 mt-auto shrink-0",
-          collapsed && "px-2",
-        )}
-      >
-        <div
-          onClick={toggleHidden}
-          className={clsx(
-            "flex items-center gap-3 p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer transition-colors text-slate-500",
-            showHidden && "text-primary-500 bg-primary-500/5",
-            collapsed && "justify-center",
-          )}
-          title={
-            collapsed ? (showHidden ? "Hide Hidden" : "Show Hidden") : undefined
-          }
-        >
-          {showHidden ? <Eye size={18} /> : <EyeOff size={18} />}
-          <span className={clsx("text-sm font-medium", collapsed && "hidden")}>
-            {showHidden ? "Hide Hidden" : "Show Hidden"}
-          </span>
-        </div>
       </div>
     </aside>
   );

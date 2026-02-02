@@ -20,6 +20,131 @@ export interface TabState {
   loading: boolean;
 }
 
+export interface WorkspaceTask {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+export interface WorkspaceSnapshotTab {
+  id: string;
+  path: string;
+  history: string[];
+  historyIndex: number;
+}
+
+export interface WorkspaceSnapshot {
+  paneCount: 1 | 2 | 4;
+  dualPane: boolean;
+  activeLeftTabId: string;
+  activeRightTabId: string;
+  activeBottomLeftTabId: string;
+  activeBottomRightTabId: string;
+  leftTabs: WorkspaceSnapshotTab[];
+  rightTabs: WorkspaceSnapshotTab[];
+  bottomLeftTabs: WorkspaceSnapshotTab[];
+  bottomRightTabs: WorkspaceSnapshotTab[];
+  leftViewMode: "list" | "grid";
+  rightViewMode: "list" | "grid";
+  bottomLeftViewMode: "list" | "grid";
+  bottomRightViewMode: "list" | "grid";
+  leftGridSize: "small" | "medium" | "large" | "xl";
+  rightGridSize: "small" | "medium" | "large" | "xl";
+  bottomLeftGridSize: "small" | "medium" | "large" | "xl";
+  bottomRightGridSize: "small" | "medium" | "large" | "xl";
+  leftSortBy: "name" | "size" | "date" | "type";
+  rightSortBy: "name" | "size" | "date" | "type";
+  bottomLeftSortBy: "name" | "size" | "date" | "type";
+  bottomRightSortBy: "name" | "size" | "date" | "type";
+  leftSortOrder: "asc" | "desc";
+  rightSortOrder: "asc" | "desc";
+  bottomLeftSortOrder: "asc" | "desc";
+  bottomRightSortOrder: "asc" | "desc";
+  showHidden: boolean;
+}
+
+export interface WorkspaceState {
+  id: string;
+  name: string;
+  createdAt: number;
+  snapshot: WorkspaceSnapshot;
+  notes: string;
+  tasks: WorkspaceTask[];
+}
+
+const storageKey = "smartExplorer.workspaces";
+const sessionKey = "smartExplorer.lastSession";
+
+const loadWorkspaces = (): WorkspaceState[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    return raw ? (JSON.parse(raw) as WorkspaceState[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const persistWorkspaces = (workspaces: WorkspaceState[]) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(workspaces));
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const loadLastSession = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(sessionKey);
+    return raw ? (JSON.parse(raw) as any) : null;
+  } catch {
+    return null;
+  }
+};
+
+const persistLastSession = (state: AppState) => {
+  if (typeof window === "undefined") return;
+  try {
+    const payload = {
+      paneCount: state.paneCount,
+      dualPane: state.dualPane,
+      activeLeftTabId: state.activeLeftTabId,
+      activeRightTabId: state.activeRightTabId,
+      activeBottomLeftTabId: state.activeBottomLeftTabId,
+      activeBottomRightTabId: state.activeBottomRightTabId,
+      leftTabs: state.leftTabs.map((t) => ({
+        id: t.id,
+        path: t.path,
+        history: t.history,
+        historyIndex: t.historyIndex,
+      })),
+      rightTabs: state.rightTabs.map((t) => ({
+        id: t.id,
+        path: t.path,
+        history: t.history,
+        historyIndex: t.historyIndex,
+      })),
+      bottomLeftTabs: state.bottomLeftTabs.map((t) => ({
+        id: t.id,
+        path: t.path,
+        history: t.history,
+        historyIndex: t.historyIndex,
+      })),
+      bottomRightTabs: state.bottomRightTabs.map((t) => ({
+        id: t.id,
+        path: t.path,
+        history: t.history,
+        historyIndex: t.historyIndex,
+      })),
+    };
+    window.localStorage.setItem(sessionKey, JSON.stringify(payload));
+  } catch {
+    // ignore storage errors
+  }
+};
+
 const getSideKeys = (side: "left" | "right" | "bottomLeft" | "bottomRight") => {
   const capitalized = side.charAt(0).toUpperCase() + side.slice(1);
   return {
@@ -63,6 +188,8 @@ interface AppState {
   paneCount: 1 | 2 | 4; // Replaces dualPane logic
   dualPane: boolean; // Keep for backward compat temporarily
   clipboard: { paths: string[]; type: "copy" | "cut" | null };
+  workspaces: WorkspaceState[];
+  activeWorkspaceId: string | null;
 
   // View Settings
   leftGridSize: "small" | "medium" | "large" | "xl";
@@ -162,53 +289,50 @@ interface AppState {
   ) => void;
   cutSelection: (side: "left" | "right" | "bottomLeft" | "bottomRight") => void;
   clearClipboard: () => void;
+  saveWorkspace: (name: string) => void;
+  loadWorkspace: (id: string) => void;
+  deleteWorkspace: (id: string) => void;
+  updateWorkspaceNotes: (id: string, notes: string) => void;
+  addWorkspaceTask: (id: string, text: string) => void;
+  toggleWorkspaceTask: (id: string, taskId: string) => void;
+  removeWorkspaceTask: (id: string, taskId: string) => void;
 }
 
-export const useStore = create<AppState>((set) => ({
-  leftTabs: [
-    {
-      id: "l1",
-      path: "C:\\",
-      history: ["C:\\"],
-      historyIndex: 0,
-      files: [],
-      loading: false,
-    },
-  ],
-  rightTabs: [
-    {
-      id: "r1",
-      path: "C:\\",
-      history: ["C:\\"],
-      historyIndex: 0,
-      files: [],
-      loading: false,
-    },
-  ],
-  bottomLeftTabs: [
-    {
-      id: "bl1",
-      path: "C:\\",
-      history: ["C:\\"],
-      historyIndex: 0,
-      files: [],
-      loading: false,
-    },
-  ],
-  bottomRightTabs: [
-    {
-      id: "br1",
-      path: "C:\\",
-      history: ["C:\\"],
-      historyIndex: 0,
-      files: [],
-      loading: false,
-    },
-  ],
-  activeLeftTabId: "l1",
-  activeRightTabId: "r1",
-  activeBottomLeftTabId: "bl1",
-  activeBottomRightTabId: "br1",
+const lastSession = loadLastSession();
+
+const initTabs = (
+  tabs: WorkspaceSnapshotTab[] | undefined,
+  fallbackId: string,
+) =>
+  tabs && tabs.length > 0
+    ? tabs.map((t) => ({
+        id: t.id,
+        path: t.path,
+        history: t.history?.length ? t.history : [t.path],
+        historyIndex: typeof t.historyIndex === "number" ? t.historyIndex : 0,
+        files: [],
+        loading: true,
+      }))
+    : [
+        {
+          id: fallbackId,
+          path: "C:\\",
+          history: ["C:\\"],
+          historyIndex: 0,
+          files: [],
+          loading: false,
+        },
+      ];
+
+export const useStore = create<AppState>((set, get) => ({
+  leftTabs: initTabs(lastSession?.leftTabs, "l1"),
+  rightTabs: initTabs(lastSession?.rightTabs, "r1"),
+  bottomLeftTabs: initTabs(lastSession?.bottomLeftTabs, "bl1"),
+  bottomRightTabs: initTabs(lastSession?.bottomRightTabs, "br1"),
+  activeLeftTabId: lastSession?.activeLeftTabId || "l1",
+  activeRightTabId: lastSession?.activeRightTabId || "r1",
+  activeBottomLeftTabId: lastSession?.activeBottomLeftTabId || "bl1",
+  activeBottomRightTabId: lastSession?.activeBottomRightTabId || "br1",
   theme: "dark",
   leftViewMode: "grid",
   rightViewMode: "grid",
@@ -225,9 +349,11 @@ export const useStore = create<AppState>((set) => ({
   orphans: [],
   activeSide: "left",
   showHidden: false,
-  dualPane: true,
-  paneCount: 2,
+  dualPane: lastSession?.dualPane ?? true,
+  paneCount: lastSession?.paneCount ?? 2,
   clipboard: { paths: [], type: null },
+  workspaces: loadWorkspaces(),
+  activeWorkspaceId: null,
   leftGridSize: "medium",
   rightGridSize: "medium",
   bottomLeftGridSize: "medium",
@@ -266,10 +392,13 @@ export const useStore = create<AppState>((set) => ({
         files: [],
         loading: false,
       };
-      return {
+      const nextState = {
+        ...state,
         [tabsKey]: [...(state[tabsKey] || []), newTab],
         [activeKey]: id,
-      } as any;
+      } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
     }),
 
   closeTab: (side, id) =>
@@ -283,12 +412,22 @@ export const useStore = create<AppState>((set) => ({
         newActiveId = newTabs[newTabs.length - 1].id;
       }
 
-      return { [tabsKey]: newTabs, [activeKey]: newActiveId } as any;
+      const nextState = {
+        ...state,
+        [tabsKey]: newTabs,
+        [activeKey]: newActiveId,
+      } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
     }),
 
   setActiveTab: (side, id) => {
     const { activeKey } = getSideKeys(side);
-    set({ [activeKey]: id } as any);
+    set((state) => {
+      const nextState = { ...state, [activeKey]: id } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
+    });
   },
 
   updateTabFiles: (side, id, files) =>
@@ -309,63 +448,69 @@ export const useStore = create<AppState>((set) => ({
       // If already on this path, do nothing
       if (targetTab && targetTab.path === path) return {} as any;
 
-      return {
-        [tabsKey]: state[tabsKey].map((t) => {
-          if (t.id === id) {
-            const newHistory = t.history.slice(0, t.historyIndex + 1);
-            newHistory.push(path);
-            return {
-              ...t,
-              path,
-              history: newHistory,
-              historyIndex: newHistory.length - 1,
-              loading: true,
-              files: [],
-            };
-          }
-          return t;
-        }),
-      };
+      const nextTabs = state[tabsKey].map((t) => {
+        if (t.id === id) {
+          const newHistory = t.history.slice(0, t.historyIndex + 1);
+          newHistory.push(path);
+          return {
+            ...t,
+            path,
+            history: newHistory,
+            historyIndex: newHistory.length - 1,
+            loading: true,
+            files: [],
+          };
+        }
+        return t;
+      });
+
+      const nextState = { ...state, [tabsKey]: nextTabs } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
     }),
 
   goBack: (side, id) =>
     set((state) => {
       const { tabsKey } = getSideKeys(side);
-      return {
-        [tabsKey]: state[tabsKey].map((t) => {
-          if (t.id === id && t.historyIndex > 0) {
-            const newIndex = t.historyIndex - 1;
-            return {
-              ...t,
-              path: t.history[newIndex],
-              historyIndex: newIndex,
-              loading: true,
-              files: [],
-            };
-          }
-          return t;
-        }),
-      };
+      const nextTabs = state[tabsKey].map((t) => {
+        if (t.id === id && t.historyIndex > 0) {
+          const newIndex = t.historyIndex - 1;
+          return {
+            ...t,
+            path: t.history[newIndex],
+            historyIndex: newIndex,
+            loading: true,
+            files: [],
+          };
+        }
+        return t;
+      });
+
+      const nextState = { ...state, [tabsKey]: nextTabs } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
     }),
 
   goForward: (side, id) =>
     set((state) => {
       const { tabsKey } = getSideKeys(side);
-      return {
-        [tabsKey]: state[tabsKey].map((t) => {
-          if (t.id === id && t.historyIndex < t.history.length - 1) {
-            const newIndex = t.historyIndex + 1;
-            return {
-              ...t,
-              path: t.history[newIndex],
-              historyIndex: newIndex,
-              loading: true,
-              files: [],
-            };
-          }
-          return t;
-        }),
-      };
+      const nextTabs = state[tabsKey].map((t) => {
+        if (t.id === id && t.historyIndex < t.history.length - 1) {
+          const newIndex = t.historyIndex + 1;
+          return {
+            ...t,
+            path: t.history[newIndex],
+            historyIndex: newIndex,
+            loading: true,
+            files: [],
+          };
+        }
+        return t;
+      });
+
+      const nextState = { ...state, [tabsKey]: nextTabs } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
     }),
 
   setActiveSide: (side) => set({ activeSide: side }),
@@ -427,12 +572,15 @@ export const useStore = create<AppState>((set) => ({
         newFromActive = newFromTabs[newFromTabs.length - 1].id;
       }
 
-      return {
+      const nextState = {
+        ...state,
         [fromTabsKey]: newFromTabs,
         [fromActiveKey]: newFromActive,
         [toTabsKey]: newToTabs,
         [toActiveKey]: tabId,
-      } as any;
+      } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
     }),
 
   copySelection: (side) =>
@@ -458,4 +606,191 @@ export const useStore = create<AppState>((set) => ({
     }),
 
   clearClipboard: () => set({ clipboard: { paths: [], type: null } }),
+
+  saveWorkspace: (name) =>
+    set((state) => {
+      const snapshot: WorkspaceSnapshot = {
+        paneCount: state.paneCount,
+        dualPane: state.dualPane,
+        activeLeftTabId: state.activeLeftTabId,
+        activeRightTabId: state.activeRightTabId,
+        activeBottomLeftTabId: state.activeBottomLeftTabId,
+        activeBottomRightTabId: state.activeBottomRightTabId,
+        leftTabs: state.leftTabs.map((t) => ({
+          id: t.id,
+          path: t.path,
+          history: t.history,
+          historyIndex: t.historyIndex,
+        })),
+        rightTabs: state.rightTabs.map((t) => ({
+          id: t.id,
+          path: t.path,
+          history: t.history,
+          historyIndex: t.historyIndex,
+        })),
+        bottomLeftTabs: state.bottomLeftTabs.map((t) => ({
+          id: t.id,
+          path: t.path,
+          history: t.history,
+          historyIndex: t.historyIndex,
+        })),
+        bottomRightTabs: state.bottomRightTabs.map((t) => ({
+          id: t.id,
+          path: t.path,
+          history: t.history,
+          historyIndex: t.historyIndex,
+        })),
+        leftViewMode: state.leftViewMode,
+        rightViewMode: state.rightViewMode,
+        bottomLeftViewMode: state.bottomLeftViewMode,
+        bottomRightViewMode: state.bottomRightViewMode,
+        leftGridSize: state.leftGridSize,
+        rightGridSize: state.rightGridSize,
+        bottomLeftGridSize: state.bottomLeftGridSize,
+        bottomRightGridSize: state.bottomRightGridSize,
+        leftSortBy: state.leftSortBy,
+        rightSortBy: state.rightSortBy,
+        bottomLeftSortBy: state.bottomLeftSortBy,
+        bottomRightSortBy: state.bottomRightSortBy,
+        leftSortOrder: state.leftSortOrder,
+        rightSortOrder: state.rightSortOrder,
+        bottomLeftSortOrder: state.bottomLeftSortOrder,
+        bottomRightSortOrder: state.bottomRightSortOrder,
+        showHidden: state.showHidden,
+      };
+
+      const workspace: WorkspaceState = {
+        id: `ws_${Date.now()}`,
+        name: name.trim() || "Untitled Workspace",
+        createdAt: Date.now(),
+        snapshot,
+        notes: "",
+        tasks: [],
+      };
+
+      const workspaces = [workspace, ...state.workspaces];
+      persistWorkspaces(workspaces);
+
+      return {
+        workspaces,
+        activeWorkspaceId: workspace.id,
+      } as any;
+    }),
+
+  loadWorkspace: (id) =>
+    set((state) => {
+      const workspace = state.workspaces.find((w) => w.id === id);
+      if (!workspace) return {} as any;
+
+      const s = workspace.snapshot;
+      const makeTabs = (tabs: WorkspaceSnapshotTab[]) =>
+        tabs.map((t) => ({
+          id: t.id,
+          path: t.path,
+          history: t.history,
+          historyIndex: t.historyIndex,
+          files: [],
+          loading: true,
+        }));
+
+      const nextState = {
+        paneCount: s.paneCount,
+        dualPane: s.dualPane,
+        activeLeftTabId: s.activeLeftTabId,
+        activeRightTabId: s.activeRightTabId,
+        activeBottomLeftTabId: s.activeBottomLeftTabId,
+        activeBottomRightTabId: s.activeBottomRightTabId,
+        leftTabs: makeTabs(s.leftTabs),
+        rightTabs: makeTabs(s.rightTabs),
+        bottomLeftTabs: makeTabs(s.bottomLeftTabs),
+        bottomRightTabs: makeTabs(s.bottomRightTabs),
+        leftViewMode: s.leftViewMode,
+        rightViewMode: s.rightViewMode,
+        bottomLeftViewMode: s.bottomLeftViewMode,
+        bottomRightViewMode: s.bottomRightViewMode,
+        leftGridSize: s.leftGridSize,
+        rightGridSize: s.rightGridSize,
+        bottomLeftGridSize: s.bottomLeftGridSize,
+        bottomRightGridSize: s.bottomRightGridSize,
+        leftSortBy: s.leftSortBy,
+        rightSortBy: s.rightSortBy,
+        bottomLeftSortBy: s.bottomLeftSortBy,
+        bottomRightSortBy: s.bottomRightSortBy,
+        leftSortOrder: s.leftSortOrder,
+        rightSortOrder: s.rightSortOrder,
+        bottomLeftSortOrder: s.bottomLeftSortOrder,
+        bottomRightSortOrder: s.bottomRightSortOrder,
+        showHidden: s.showHidden,
+        activeView: "explorer",
+        activeSide: "left",
+        activeWorkspaceId: workspace.id,
+      } as AppState;
+
+      persistLastSession(nextState);
+      return nextState as any;
+    }),
+
+  deleteWorkspace: (id) =>
+    set((state) => {
+      const workspaces = state.workspaces.filter((w) => w.id !== id);
+      persistWorkspaces(workspaces);
+      return {
+        workspaces,
+        activeWorkspaceId:
+          state.activeWorkspaceId === id ? null : state.activeWorkspaceId,
+      } as any;
+    }),
+
+  updateWorkspaceNotes: (id, notes) =>
+    set((state) => {
+      const workspaces = state.workspaces.map((w) =>
+        w.id === id ? { ...w, notes } : w,
+      );
+      persistWorkspaces(workspaces);
+      return { workspaces } as any;
+    }),
+
+  addWorkspaceTask: (id, text) =>
+    set((state) => {
+      const workspaces = state.workspaces.map((w) =>
+        w.id === id
+          ? {
+              ...w,
+              tasks: [
+                ...w.tasks,
+                { id: `task_${Date.now()}`, text, done: false },
+              ],
+            }
+          : w,
+      );
+      persistWorkspaces(workspaces);
+      return { workspaces } as any;
+    }),
+
+  toggleWorkspaceTask: (id, taskId) =>
+    set((state) => {
+      const workspaces = state.workspaces.map((w) =>
+        w.id === id
+          ? {
+              ...w,
+              tasks: w.tasks.map((t) =>
+                t.id === taskId ? { ...t, done: !t.done } : t,
+              ),
+            }
+          : w,
+      );
+      persistWorkspaces(workspaces);
+      return { workspaces } as any;
+    }),
+
+  removeWorkspaceTask: (id, taskId) =>
+    set((state) => {
+      const workspaces = state.workspaces.map((w) =>
+        w.id === id
+          ? { ...w, tasks: w.tasks.filter((t) => t.id !== taskId) }
+          : w,
+      );
+      persistWorkspaces(workspaces);
+      return { workspaces } as any;
+    }),
 }));
