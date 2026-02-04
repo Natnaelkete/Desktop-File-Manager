@@ -776,7 +776,14 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       setSelection(side, [next.path]);
       setScrollTarget(next.path);
     },
-    [filteredFiles, selection, setActiveSide, setSelection, setScrollTarget, side],
+    [
+      filteredFiles,
+      selection,
+      setActiveSide,
+      setSelection,
+      setScrollTarget,
+      side,
+    ],
   );
 
   const handleFileClick = (e: React.MouseEvent, file: FileItem) => {
