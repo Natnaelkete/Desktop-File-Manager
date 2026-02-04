@@ -744,6 +744,41 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     }
   };
 
+  const handleTypeSelect = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.target instanceof HTMLInputElement) return;
+      if (e.target instanceof HTMLTextAreaElement) return;
+
+      const key = e.key;
+      if (!key || key.length !== 1) return;
+
+      const char = key.toLowerCase();
+      if (!/[a-z0-9]/.test(char)) return;
+
+      const startIndex = selection.length
+        ? Math.max(
+            0,
+            filteredFiles.findIndex((f) => f.path === selection[0]) + 1,
+          )
+        : 0;
+
+      const matches = filteredFiles.filter((f) =>
+        f.name.toLowerCase().startsWith(char),
+      );
+      if (matches.length === 0) return;
+
+      const next =
+        filteredFiles
+          .slice(startIndex)
+          .find((f) => f.name.toLowerCase().startsWith(char)) || matches[0];
+
+      setActiveSide(side);
+      setSelection(side, [next.path]);
+      setScrollTarget(next.path);
+    },
+    [filteredFiles, selection, setActiveSide, setSelection, setScrollTarget, side],
+  );
+
   const handleFileClick = (e: React.MouseEvent, file: FileItem) => {
     e.stopPropagation();
     setActiveSide(side); // Ensure side is active
@@ -991,7 +1026,9 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       <div
         onDragOver={handleDragOver}
         onDrop={handleDrop}
-        className="flex-1 flex flex-col min-h-0 no-drag bg-slate-50/50 dark:bg-slate-900/50 relative overflow-hidden"
+        onKeyDown={handleTypeSelect}
+        tabIndex={0}
+        className="flex-1 flex flex-col min-h-0 no-drag bg-slate-50/50 dark:bg-slate-900/50 relative overflow-hidden focus:outline-none"
       >
         {viewMode === "list" ? (
           <div className="flex-1 flex flex-col min-h-0 w-full h-full relative">

@@ -1,48 +1,48 @@
-import { defineConfig } from 'vite'
-import path from 'node:path'
-import electron from 'vite-plugin-electron'
-import renderer from 'vite-plugin-electron-renderer'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from "vite";
+import path from "node:path";
+import electron from "vite-plugin-electron";
+import renderer from "vite-plugin-electron-renderer";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  base: './',
+  base: "./",
   resolve: {
     alias: {
-      '@': path.join(process.cwd(), 'src/renderer'),
+      "@": path.join(process.cwd(), "src/renderer"),
     },
   },
   plugins: [
     react(),
     electron([
       {
-        entry: 'src/main/main.ts',
+        entry: "src/main/main.ts",
         onstart(options) {
-          options.startup()
+          options.startup();
         },
         vite: {
           build: {
-            outDir: 'dist-electron',
+            outDir: "dist-electron",
             minify: false,
             rollupOptions: {
               output: {
-                entryFileNames: '[name].cjs',
+                entryFileNames: "[name].cjs",
               },
             },
           },
         },
       },
       {
-        entry: 'src/preload/preload.ts',
+        entry: "src/preload/preload.ts",
         onstart(options) {
-          options.reload()
+          options.reload();
         },
         vite: {
           build: {
-            outDir: 'dist-electron',
+            outDir: "dist-electron",
             minify: false,
             rollupOptions: {
               output: {
-                entryFileNames: '[name].cjs',
+                entryFileNames: "[name].cjs",
               },
             },
           },
@@ -51,4 +51,4 @@ export default defineConfig({
     ]),
     renderer(),
   ],
-})
+});
