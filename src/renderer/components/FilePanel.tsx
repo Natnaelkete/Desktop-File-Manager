@@ -758,11 +758,12 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       const startIndex = selection.length
         ? Math.max(
             0,
-            filteredFiles.findIndex((f) => f.path === selection[0]) + 1,
+            filteredFiles.findIndex((f: FileItem) => f.path === selection[0]) +
+              1,
           )
         : 0;
 
-      const matches = filteredFiles.filter((f) =>
+      const matches = filteredFiles.filter((f: FileItem) =>
         f.name.toLowerCase().startsWith(char),
       );
       if (matches.length === 0) return;
@@ -770,7 +771,8 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       const next =
         filteredFiles
           .slice(startIndex)
-          .find((f) => f.name.toLowerCase().startsWith(char)) || matches[0];
+          .find((f: FileItem) => f.name.toLowerCase().startsWith(char)) ||
+        matches[0];
 
       setActiveSide(side);
       setSelection(side, [next.path]);
