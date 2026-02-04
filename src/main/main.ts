@@ -356,6 +356,7 @@ process.env.DIST = path.join(__dirname, "../dist");
 process.env.VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 
 let win: BrowserWindow | null;
+const isDev = !app.isPackaged && !!process.env.VITE_DEV_SERVER_URL;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -376,14 +377,14 @@ function createWindow() {
     },
   });
 
-  if (process.env.VITE_DEV_SERVER_URL) {
+  if (isDev && process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL);
     win.webContents.openDevTools();
-  } else {
-    if (process.env.DIST) {
-      win.loadFile(path.join(process.env.DIST, "index.html"));
-    }
+    return;
   }
+
+  const distDir = process.env.DIST || path.join(__dirname, "../dist");
+  win.loadFile(path.join(distDir, "index.html"));
 }
 
 app.on("window-all-closed", () => {

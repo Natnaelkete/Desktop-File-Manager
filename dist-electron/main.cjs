@@ -5,6 +5,6 @@ require("node:fs");
 require("node:path");
 require("node:fs/promises");
 require("node:child_process");
-require("./main-Bt8d1A99.cjs");
+require("./main-CE-ncPAr.cjs");
 require("node:util");
 require("node:crypto");

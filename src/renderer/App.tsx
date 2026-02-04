@@ -252,7 +252,6 @@ const App: React.FC = () => {
             <button className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
               <Settings size={20} />
             </button>
-            <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-primary-500 to-indigo-500 ml-2 border border-white dark:border-slate-700 shadow-sm cursor-pointer" />
           </div>
         </header>
 

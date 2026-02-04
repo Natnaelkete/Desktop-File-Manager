@@ -145,17 +145,83 @@ const persistLastSession = (state: AppState) => {
   }
 };
 
-const getSideKeys = (side: "left" | "right" | "bottomLeft" | "bottomRight") => {
-  const capitalized = side.charAt(0).toUpperCase() + side.slice(1);
-  return {
-    tabsKey: `${side}Tabs` as keyof AppState,
-    activeKey: `active${capitalized}TabId` as keyof AppState,
-    viewModeKey: `${side}ViewMode` as keyof AppState,
-    selectionKey: `${side}Selection` as keyof AppState,
-    gridSizeKey: `${side}GridSize` as keyof AppState,
-    sortByKey: `${side}SortBy` as keyof AppState,
-    sortOrderKey: `${side}SortOrder` as keyof AppState,
-  };
+type Side = "left" | "right" | "bottomLeft" | "bottomRight";
+type TabsKey = "leftTabs" | "rightTabs" | "bottomLeftTabs" | "bottomRightTabs";
+type ActiveKey =
+  | "activeLeftTabId"
+  | "activeRightTabId"
+  | "activeBottomLeftTabId"
+  | "activeBottomRightTabId";
+type ViewModeKey =
+  | "leftViewMode"
+  | "rightViewMode"
+  | "bottomLeftViewMode"
+  | "bottomRightViewMode";
+type SelectionKey =
+  | "leftSelection"
+  | "rightSelection"
+  | "bottomLeftSelection"
+  | "bottomRightSelection";
+type GridSizeKey =
+  | "leftGridSize"
+  | "rightGridSize"
+  | "bottomLeftGridSize"
+  | "bottomRightGridSize";
+type SortByKey =
+  | "leftSortBy"
+  | "rightSortBy"
+  | "bottomLeftSortBy"
+  | "bottomRightSortBy";
+type SortOrderKey =
+  | "leftSortOrder"
+  | "rightSortOrder"
+  | "bottomLeftSortOrder"
+  | "bottomRightSortOrder";
+
+const getSideKeys = (side: Side) => {
+  switch (side) {
+    case "left":
+      return {
+        tabsKey: "leftTabs" as TabsKey,
+        activeKey: "activeLeftTabId" as ActiveKey,
+        viewModeKey: "leftViewMode" as ViewModeKey,
+        selectionKey: "leftSelection" as SelectionKey,
+        gridSizeKey: "leftGridSize" as GridSizeKey,
+        sortByKey: "leftSortBy" as SortByKey,
+        sortOrderKey: "leftSortOrder" as SortOrderKey,
+      };
+    case "right":
+      return {
+        tabsKey: "rightTabs" as TabsKey,
+        activeKey: "activeRightTabId" as ActiveKey,
+        viewModeKey: "rightViewMode" as ViewModeKey,
+        selectionKey: "rightSelection" as SelectionKey,
+        gridSizeKey: "rightGridSize" as GridSizeKey,
+        sortByKey: "rightSortBy" as SortByKey,
+        sortOrderKey: "rightSortOrder" as SortOrderKey,
+      };
+    case "bottomLeft":
+      return {
+        tabsKey: "bottomLeftTabs" as TabsKey,
+        activeKey: "activeBottomLeftTabId" as ActiveKey,
+        viewModeKey: "bottomLeftViewMode" as ViewModeKey,
+        selectionKey: "bottomLeftSelection" as SelectionKey,
+        gridSizeKey: "bottomLeftGridSize" as GridSizeKey,
+        sortByKey: "bottomLeftSortBy" as SortByKey,
+        sortOrderKey: "bottomLeftSortOrder" as SortOrderKey,
+      };
+    case "bottomRight":
+    default:
+      return {
+        tabsKey: "bottomRightTabs" as TabsKey,
+        activeKey: "activeBottomRightTabId" as ActiveKey,
+        viewModeKey: "bottomRightViewMode" as ViewModeKey,
+        selectionKey: "bottomRightSelection" as SelectionKey,
+        gridSizeKey: "bottomRightGridSize" as GridSizeKey,
+        sortByKey: "bottomRightSortBy" as SortByKey,
+        sortOrderKey: "bottomRightSortOrder" as SortOrderKey,
+      };
+  }
 };
 
 interface AppState {
@@ -693,7 +759,8 @@ export const useStore = create<AppState>((set, get) => ({
           loading: true,
         }));
 
-      const nextState = {
+      const nextState: AppState = {
+        ...state,
         paneCount: s.paneCount,
         dualPane: s.dualPane,
         activeLeftTabId: s.activeLeftTabId,
@@ -724,7 +791,7 @@ export const useStore = create<AppState>((set, get) => ({
         activeView: "explorer",
         activeSide: "left",
         activeWorkspaceId: workspace.id,
-      } as AppState;
+      };
 
       persistLastSession(nextState);
       return nextState as any;

@@ -5,6 +5,7 @@ import renderer from 'vite-plugin-electron-renderer'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  base: './',
   resolve: {
     alias: {
       '@': path.join(process.cwd(), 'src/renderer'),

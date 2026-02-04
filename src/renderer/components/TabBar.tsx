@@ -8,13 +8,13 @@ interface TabBarProps {
 }
 
 const TabBar: React.FC<TabBarProps> = ({ side }) => {
-  const tabs = useStore((state: any) => {
+  const tabs = useStore((state) => {
     if (side === "left") return state.leftTabs;
     if (side === "right") return state.rightTabs;
     if (side === "bottomLeft") return state.bottomLeftTabs;
     return state.bottomRightTabs;
   });
-  const activeTabId = useStore((state: any) => {
+  const activeTabId = useStore((state) => {
     if (side === "left") return state.activeLeftTabId;
     if (side === "right") return state.activeRightTabId;
     if (side === "bottomLeft") return state.activeBottomLeftTabId;
