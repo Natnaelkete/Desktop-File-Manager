@@ -41,6 +41,7 @@ const App: React.FC = () => {
     toggleDualPane,
     toggleQuadPane,
     paneCount,
+    clearUnlockedPaths,
   } = useStore();
   const [analyzerPath, setAnalyzerPath] = useState<string | null>(null);
   const [viewerData, setViewerData] = useState<{
@@ -168,6 +169,45 @@ const App: React.FC = () => {
       window.removeEventListener("open-text", handleOpenText);
     };
   }, []);
+
+  useEffect(() => {
+    const AUTO_LOCK_MS = 5 * 60 * 1000;
+    let timer: number | null = null;
+
+    const resetTimer = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        clearUnlockedPaths();
+      }, AUTO_LOCK_MS);
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        clearUnlockedPaths();
+      } else {
+        resetTimer();
+      }
+    };
+
+    resetTimer();
+
+    window.addEventListener("mousemove", resetTimer);
+    window.addEventListener("keydown", resetTimer);
+    window.addEventListener("mousedown", resetTimer);
+    window.addEventListener("touchstart", resetTimer);
+    window.addEventListener("blur", clearUnlockedPaths);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      window.removeEventListener("mousemove", resetTimer);
+      window.removeEventListener("keydown", resetTimer);
+      window.removeEventListener("mousedown", resetTimer);
+      window.removeEventListener("touchstart", resetTimer);
+      window.removeEventListener("blur", clearUnlockedPaths);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [clearUnlockedPaths]);
 
   return (
     <div

@@ -5,6 +5,6 @@ require("node:fs");
 require("node:path");
 require("node:fs/promises");
 require("node:child_process");
-require("./main-CE-ncPAr.cjs");
+require("./main-BDcMTcyp.cjs");
 require("node:util");
 require("node:crypto");

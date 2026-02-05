@@ -74,6 +74,7 @@ export interface WorkspaceState {
 
 const storageKey = "smartExplorer.workspaces";
 const sessionKey = "smartExplorer.lastSession";
+const lockKey = "smartExplorer.lockState";
 
 const loadWorkspaces = (): WorkspaceState[] => {
   if (typeof window === "undefined") return [];
@@ -143,6 +144,40 @@ const persistLastSession = (state: AppState) => {
   } catch {
     // ignore storage errors
   }
+};
+
+const loadLockState = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(lockKey);
+    return raw ? (JSON.parse(raw) as any) : null;
+  } catch {
+    return null;
+  }
+};
+
+const persistLockState = (state: AppState) => {
+  if (typeof window === "undefined") return;
+  try {
+    const payload = {
+      lockedPaths: state.lockedPaths,
+      pinHash: state.pinHash,
+      pinSalt: state.pinSalt,
+    };
+    window.localStorage.setItem(lockKey, JSON.stringify(payload));
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const normalizeLockPath = (p: string) =>
+  p.replace(/[\\/]+$/, "").toLowerCase();
+
+const isPathMatch = (path: string, base: string) => {
+  const nPath = normalizeLockPath(path);
+  const nBase = normalizeLockPath(base);
+  if (!nBase) return false;
+  return nPath === nBase || nPath.startsWith(`${nBase}\\`);
 };
 
 type Side = "left" | "right" | "bottomLeft" | "bottomRight";
@@ -278,6 +313,12 @@ interface AppState {
   uwpApps: any[];
   orphans: any[];
 
+  // Secure folders
+  lockedPaths: string[];
+  unlockedPaths: string[];
+  pinHash: string | null;
+  pinSalt: string | null;
+
   // Actions
   setTheme: (theme: "light" | "dark") => void;
   setLeftViewMode: (mode: "list" | "grid") => void;
@@ -295,6 +336,12 @@ interface AppState {
   setInstalledApps: (apps: any[]) => void;
   setUwpApps: (apps: any[]) => void;
   setOrphans: (orphans: any[]) => void;
+  setPinCredentials: (pinHash: string, pinSalt: string) => void;
+  lockPath: (path: string) => void;
+  unlockPath: (path: string) => void;
+  unlockPathForSession: (path: string) => void;
+  clearUnlockedPaths: () => void;
+  isPathLocked: (path: string) => boolean;
 
   addTab: (
     side: "left" | "right" | "bottomLeft" | "bottomRight",
@@ -365,6 +412,7 @@ interface AppState {
 }
 
 const lastSession = loadLastSession();
+const lockState = loadLockState();
 
 const initTabs = (
   tabs: WorkspaceSnapshotTab[] | undefined,
@@ -413,6 +461,10 @@ export const useStore = create<AppState>((set, get) => ({
   installedApps: [],
   uwpApps: [],
   orphans: [],
+  lockedPaths: (lockState?.lockedPaths || []).map(normalizeLockPath),
+  unlockedPaths: [],
+  pinHash: lockState?.pinHash || null,
+  pinSalt: lockState?.pinSalt || null,
   activeSide: "left",
   showHidden: false,
   dualPane: lastSession?.dualPane ?? true,
@@ -445,6 +497,58 @@ export const useStore = create<AppState>((set, get) => ({
   setInstalledApps: (installedApps) => set({ installedApps }),
   setUwpApps: (uwpApps) => set({ uwpApps }),
   setOrphans: (orphans) => set({ orphans }),
+  setPinCredentials: (pinHash, pinSalt) =>
+    set((state) => {
+      const nextState = { ...state, pinHash, pinSalt } as AppState;
+      persistLockState(nextState);
+      return nextState as any;
+    }),
+  lockPath: (path) =>
+    set((state) => {
+      const normalized = normalizeLockPath(path);
+      const lockedPaths = state.lockedPaths.includes(normalized)
+        ? state.lockedPaths
+        : [...state.lockedPaths, normalized];
+      const unlockedPaths = state.unlockedPaths.filter(
+        (p) => !isPathMatch(p, normalized),
+      );
+      const nextState = {
+        ...state,
+        lockedPaths,
+        unlockedPaths,
+      } as AppState;
+      persistLockState(nextState);
+      return nextState as any;
+    }),
+  unlockPath: (path) =>
+    set((state) => {
+      const normalized = normalizeLockPath(path);
+      const lockedPaths = state.lockedPaths.filter(
+        (p) => !isPathMatch(p, normalized),
+      );
+      const unlockedPaths = state.unlockedPaths.filter(
+        (p) => !isPathMatch(p, normalized),
+      );
+      const nextState = { ...state, lockedPaths, unlockedPaths } as AppState;
+      persistLockState(nextState);
+      return nextState as any;
+    }),
+  unlockPathForSession: (path) =>
+    set((state) => {
+      const normalized = normalizeLockPath(path);
+      if (state.unlockedPaths.includes(normalized)) return {} as any;
+      return {
+        unlockedPaths: [...state.unlockedPaths, normalized],
+      } as any;
+    }),
+  clearUnlockedPaths: () => set({ unlockedPaths: [] }),
+  isPathLocked: (path) => {
+    const { lockedPaths, unlockedPaths } = get();
+    const lockedMatch = lockedPaths.find((p) => isPathMatch(path, p));
+    if (!lockedMatch) return false;
+    const unlockedMatch = unlockedPaths.find((p) => isPathMatch(path, p));
+    return !unlockedMatch;
+  },
 
   addTab: (side, path) =>
     set((state) => {

@@ -23,6 +23,8 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   writeFile: (path, content) => electron.ipcRenderer.invoke("write-file", path, content),
   revealInExplorer: (path) => electron.ipcRenderer.invoke("reveal-in-explorer", path),
   deleteFilesBulk: (paths) => electron.ipcRenderer.invoke("delete-files-bulk", paths),
+  lockFolderOs: (path, options) => electron.ipcRenderer.invoke("lock-folder-os", path, options),
+  unlockFolderOs: (path, options) => electron.ipcRenderer.invoke("unlock-folder-os", path, options),
   getInstalledApps: (options) => electron.ipcRenderer.invoke("get-installed-apps", options),
   runUninstaller: (uninstallString) => electron.ipcRenderer.invoke("run-uninstaller", uninstallString),
   findAppLeftovers: (appName, installLocation) => electron.ipcRenderer.invoke("find-app-leftovers", appName, installLocation),

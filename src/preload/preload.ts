@@ -37,6 +37,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("reveal-in-explorer", path),
   deleteFilesBulk: (paths: string[]) =>
     ipcRenderer.invoke("delete-files-bulk", paths),
+  lockFolderOs: (path: string, options?: { hide?: boolean; deny?: boolean }) =>
+    ipcRenderer.invoke("lock-folder-os", path, options),
+  unlockFolderOs: (path: string, options?: { hide?: boolean; deny?: boolean }) =>
+    ipcRenderer.invoke("unlock-folder-os", path, options),
   getInstalledApps: (options?: { force?: boolean }) =>
     ipcRenderer.invoke("get-installed-apps", options),
   runUninstaller: (uninstallString: string) =>

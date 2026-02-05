@@ -32,12 +32,15 @@ import {
   Info,
   Type as TypeIcon,
   RefreshCw,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import VideoThumbnail from "./VideoThumbnail";
 import ContextMenu, { ContextMenuItem } from "./ContextMenu";
 import { FileItem, useStore } from "../stores/store";
 import PropertiesModal from "./PropertiesModal";
 import QuickActionsModal from "./QuickActionsModal";
+import PinModal from "./PinModal";
 import { useFileBrowser } from "../hooks/useFileBrowser";
 import { clsx } from "clsx";
 import TabBar from "./TabBar";
@@ -166,7 +169,17 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     copySelection,
     cutSelection,
     clearClipboard,
+    lockPath,
+    unlockPath,
+    unlockPathForSession,
+    clearUnlockedPaths,
+    isPathLocked,
+    setPinCredentials,
   } = useStore();
+
+  const pinHash = useStore((state: any) => state.pinHash);
+  const pinSalt = useStore((state: any) => state.pinSalt);
+  const lockedPaths = useStore((state: any) => state.lockedPaths);
 
   const gridSize = useStore((state: any) => {
     if (side === "left") return state.leftGridSize;
@@ -211,12 +224,35 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     { name: string; path: string }[]
   >([]);
   const [openWithLoading, setOpenWithLoading] = useState(false);
+  const [pinModal, setPinModal] = useState<
+    | {
+        mode: "set" | "unlock";
+        targetPath?: string;
+        intent?: "navigate" | "remove-lock" | "lock";
+      }
+    | null
+  >(null);
   const openWithCacheRef = useRef(
     new Map<string, { name: string; path: string }[]>(),
   );
   const listRef = useRef<List>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+
+  const normalizePath = useCallback(
+    (p: string) => p.replace(/[\\/]+$/, "").toLowerCase(),
+    [],
+  );
+
+  const isPathMatchLocal = useCallback(
+    (path: string, base: string) => {
+      const nPath = normalizePath(path);
+      const nBase = normalizePath(base);
+      if (!nBase) return false;
+      return nPath === nBase || nPath.startsWith(`${nBase}\\`);
+    },
+    [normalizePath],
+  );
 
   const filteredFiles = useMemo(() => {
     // Safety check - tab might be undefined during render cycle
@@ -320,6 +356,29 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
 
   if (!tab) return null;
 
+  const selectedItem =
+    selection.length === 1
+      ? tab.files.find((f: FileItem) => f.path === selection[0])
+      : null;
+
+  const isSelectedDirLocked =
+    !!selectedItem?.isDirectory &&
+    lockedPaths.some((p: string) =>
+      isPathMatchLocal(selectedItem.path, p),
+    );
+
+  const attemptNavigate = (path: string) => {
+    if (isPathLocked(path)) {
+      setPinModal({
+        mode: pinHash ? "unlock" : "set",
+        targetPath: path,
+        intent: "navigate",
+      });
+      return;
+    }
+    navigateTo(side, activeTabId, path);
+  };
+
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     setMenuPos({ x: e.clientX, y: e.clientY, type: "empty" });
@@ -375,6 +434,10 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         { label: "Show more...", action: "open-with" },
       ];
 
+      const isLockedDir =
+        !!selectedItem?.isDirectory &&
+        lockedPaths.some((p: string) => isPathMatchLocal(selectedItem.path, p));
+
       return [
         { label: "Open", icon: ChevronRight, action: "open" },
         { label: "Open with", icon: File, submenu: openWithSubmenu },
@@ -392,6 +455,16 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         { label: "Copy", icon: Copy, action: "copy" },
         { label: "Paste", icon: Clipboard, action: "paste" },
         { label: "Rename", icon: TypeIcon, action: "rename" },
+        ...(selectedItem?.isDirectory
+          ? [
+              {
+                label: isLockedDir ? "Unlock Folder" : "Lock Folder",
+                icon: isLockedDir ? Unlock : Lock,
+                action: isLockedDir ? "unlock-folder" : "lock-folder",
+              },
+              { separator: true },
+            ]
+          : []),
         { separator: true },
         {
           label: "Delete",
@@ -445,7 +518,15 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         { label: "Properties", icon: Info, action: "properties-folder" },
       ] as ContextMenuItem[];
     }
-  }, [menuPos?.type, openWithApps, openWithLoading, selection, tab.files]);
+  }, [
+    menuPos?.type,
+    openWithApps,
+    openWithLoading,
+    selection,
+    tab.files,
+    lockedPaths,
+    isPathMatchLocal,
+  ]);
 
   const handleAction = async (action: string) => {
     // View Actions
@@ -523,6 +604,49 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         const file = tab.files.find((f: FileItem) => f.path === selection[0]);
         if (file) handleDoubleClick(file);
       }
+      setMenuPos(null);
+      return;
+    }
+
+    if (action === "lock-folder") {
+      if (!selectedItem?.isDirectory) {
+        setMenuPos(null);
+        return;
+      }
+      if (!pinHash || !pinSalt) {
+        setPinModal({ mode: "set", targetPath: selectedItem.path, intent: "lock" });
+        setMenuPos(null);
+        return;
+      }
+      const result = await (window as any).electronAPI.lockFolderOs(
+        selectedItem.path,
+        { hide: true, deny: true },
+      );
+      if (result?.error) {
+        alert(`Lock failed: ${result.error}`);
+        setMenuPos(null);
+        return;
+      }
+      lockPath(selectedItem.path);
+      setMenuPos(null);
+      return;
+    }
+
+    if (action === "unlock-folder") {
+      if (!selectedItem?.isDirectory) {
+        setMenuPos(null);
+        return;
+      }
+      if (!pinHash || !pinSalt) {
+        alert("Set a PIN first.");
+        setMenuPos(null);
+        return;
+      }
+      setPinModal({
+        mode: "unlock",
+        targetPath: selectedItem.path,
+        intent: "remove-lock",
+      });
       setMenuPos(null);
       return;
     }
@@ -825,7 +949,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
 
   const handleDoubleClick = async (file: FileItem) => {
     if (file.isDirectory) {
-      navigateTo(side, activeTabId, file.path);
+      attemptNavigate(file.path);
     } else {
       const ext = file.name.split(".").pop()?.toLowerCase();
       const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "bmp"];
@@ -917,7 +1041,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
                         newPath += "\\";
                       }
                     }
-                    navigateTo(side, activeTabId, newPath);
+                    attemptNavigate(newPath);
                   }}
                   className="hover:text-primary-500 cursor-pointer"
                 >
@@ -1283,6 +1407,44 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         <QuickActionsModal
           file={quickActionsFile}
           onClose={() => setQuickActionsFile(null)}
+        />
+      )}
+
+      {pinModal && (
+        <PinModal
+          mode={pinModal.mode}
+          pinHash={pinHash}
+          pinSalt={pinSalt}
+          onClose={() => setPinModal(null)}
+          onSetPin={(hash, salt) => {
+            setPinCredentials(hash, salt);
+            if (pinModal.intent === "lock" && pinModal.targetPath) {
+              lockPath(pinModal.targetPath);
+            }
+          }}
+          onUnlockSuccess={() => {
+            if (!pinModal.targetPath) return;
+            const performUnlock = async () => {
+              const result = await (window as any).electronAPI.unlockFolderOs(
+                pinModal.targetPath,
+                { hide: true, deny: true },
+              );
+              if (result?.error) {
+                alert(`Unlock failed: ${result.error}`);
+                return;
+              }
+
+              if (pinModal.intent === "navigate") {
+                unlockPath(pinModal.targetPath);
+                navigateTo(side, activeTabId, pinModal.targetPath);
+                return;
+              }
+              if (pinModal.intent === "remove-lock") {
+                unlockPath(pinModal.targetPath);
+              }
+            };
+            performUnlock();
+          }}
         />
       )}
 

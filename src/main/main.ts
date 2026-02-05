@@ -245,6 +245,75 @@ ipcMain.handle("open-terminal", async (_event, dirPath: string) => {
   }
 });
 
+const applyHiddenAttributes = async (targetPath: string) => {
+  await execAsync(`attrib +h +s "${targetPath}"`);
+};
+
+const removeHiddenAttributes = async (targetPath: string) => {
+  await execAsync(`attrib -h -s "${targetPath}"`);
+};
+
+const denyUserAccess = async (targetPath: string) => {
+  const user = process.env.USERNAME;
+  if (!user) throw new Error("USERNAME_NOT_FOUND");
+  await execAsync(`icacls "${targetPath}" /deny ${user}:(OI)(CI)F`);
+};
+
+const removeDenyAccess = async (targetPath: string) => {
+  const user = process.env.USERNAME;
+  if (!user) throw new Error("USERNAME_NOT_FOUND");
+  await execAsync(`icacls "${targetPath}" /remove:d ${user}`);
+  await execAsync(`icacls "${targetPath}" /inheritance:e`);
+};
+
+ipcMain.handle(
+  "lock-folder-os",
+  async (_event, targetPath: string, options?: { hide?: boolean; deny?: boolean }) => {
+    try {
+      if (process.platform !== "win32") {
+        return { error: "UNSUPPORTED_PLATFORM" };
+      }
+      if (!targetPath) {
+        return { error: "PATH_NOT_FOUND" };
+      }
+
+      if (options?.hide !== false) {
+        await applyHiddenAttributes(targetPath);
+      }
+      if (options?.deny !== false) {
+        await denyUserAccess(targetPath);
+      }
+      return { success: true };
+    } catch (error: any) {
+      return { error: error.message };
+    }
+  },
+);
+
+ipcMain.handle(
+  "unlock-folder-os",
+  async (_event, targetPath: string, options?: { hide?: boolean; deny?: boolean }) => {
+    try {
+      if (process.platform !== "win32") {
+        return { error: "UNSUPPORTED_PLATFORM" };
+      }
+      if (!targetPath) {
+        return { error: "PATH_NOT_FOUND" };
+      }
+
+      if (options?.deny !== false) {
+        await removeDenyAccess(targetPath);
+      }
+      if (options?.hide !== false) {
+        await removeHiddenAttributes(targetPath);
+      }
+      return { success: true };
+    } catch (error: any) {
+      return { error: error.message };
+    }
+  },
+);
+
 ipcMain.handle("quick-action", async (_event, action: string, payload: any) => {
   try {
     const filePath = payload?.filePath as string;
