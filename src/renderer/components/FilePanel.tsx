@@ -224,14 +224,11 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     { name: string; path: string }[]
   >([]);
   const [openWithLoading, setOpenWithLoading] = useState(false);
-  const [pinModal, setPinModal] = useState<
-    | {
-        mode: "set" | "unlock";
-        targetPath?: string;
-        intent?: "navigate" | "remove-lock" | "lock";
-      }
-    | null
-  >(null);
+  const [pinModal, setPinModal] = useState<{
+    mode: "set" | "unlock";
+    targetPath?: string;
+    intent?: "navigate" | "remove-lock" | "lock";
+  } | null>(null);
   const openWithCacheRef = useRef(
     new Map<string, { name: string; path: string }[]>(),
   );
@@ -363,9 +360,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
 
   const isSelectedDirLocked =
     !!selectedItem?.isDirectory &&
-    lockedPaths.some((p: string) =>
-      isPathMatchLocal(selectedItem.path, p),
-    );
+    lockedPaths.some((p: string) => isPathMatchLocal(selectedItem.path, p));
 
   const attemptNavigate = (path: string) => {
     if (isPathLocked(path)) {
@@ -614,7 +609,11 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
         return;
       }
       if (!pinHash || !pinSalt) {
-        setPinModal({ mode: "set", targetPath: selectedItem.path, intent: "lock" });
+        setPinModal({
+          mode: "set",
+          targetPath: selectedItem.path,
+          intent: "lock",
+        });
         setMenuPos(null);
         return;
       }

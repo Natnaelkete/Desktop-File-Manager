@@ -268,7 +268,11 @@ const removeDenyAccess = async (targetPath: string) => {
 
 ipcMain.handle(
   "lock-folder-os",
-  async (_event, targetPath: string, options?: { hide?: boolean; deny?: boolean }) => {
+  async (
+    _event,
+    targetPath: string,
+    options?: { hide?: boolean; deny?: boolean },
+  ) => {
     try {
       if (process.platform !== "win32") {
         return { error: "UNSUPPORTED_PLATFORM" };
@@ -292,7 +296,11 @@ ipcMain.handle(
 
 ipcMain.handle(
   "unlock-folder-os",
-  async (_event, targetPath: string, options?: { hide?: boolean; deny?: boolean }) => {
+  async (
+    _event,
+    targetPath: string,
+    options?: { hide?: boolean; deny?: boolean },
+  ) => {
     try {
       if (process.platform !== "win32") {
         return { error: "UNSUPPORTED_PLATFORM" };

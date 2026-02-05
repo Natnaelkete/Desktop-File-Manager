@@ -170,8 +170,7 @@ const persistLockState = (state: AppState) => {
   }
 };
 
-const normalizeLockPath = (p: string) =>
-  p.replace(/[\\/]+$/, "").toLowerCase();
+const normalizeLockPath = (p: string) => p.replace(/[\\/]+$/, "").toLowerCase();
 
 const isPathMatch = (path: string, base: string) => {
   const nPath = normalizeLockPath(path);
