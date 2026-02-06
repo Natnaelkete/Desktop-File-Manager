@@ -60,6 +60,9 @@
     },
     "directories": {
       "output": "release"
-    }
+    },
+    "asarUnpack": [
+      "**/node_modules/regedit/vbs/*"
+    ]
   }
 }

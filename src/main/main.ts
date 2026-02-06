@@ -9,7 +9,22 @@ import { exec, spawn } from "node:child_process";
 import regedit from "regedit";
 
 // Set VBS location - crucial for Electron/Vite
-const vbsPath = path.join(process.cwd(), "node_modules", "regedit", "vbs");
+let vbsPath: string;
+if (app.isPackaged) {
+  // In production, electron-builder unpacks the VBS files to resources/app.asar.unpacked
+  vbsPath = path.join(
+    process.resourcesPath,
+    "app.asar.unpacked",
+    "node_modules",
+    "regedit",
+    "vbs",
+  );
+} else {
+  // In development, they are in node_modules
+  vbsPath = path.join(process.cwd(), "node_modules", "regedit", "vbs");
+}
+
+console.log(`Setting regedit VBS path to: ${vbsPath}`);
 regedit.setExternalVBSLocation(vbsPath);
 
 // Promisify regedit list
@@ -1306,7 +1321,8 @@ const getInstalledAppsInternal = async () => {
       for (const chunkApps of chunkResults) apps.push(...chunkApps);
     }
     return apps.sort((a, b) => a.name.localeCompare(b.name));
-  } catch (e) {
+  } catch (e: any) {
+    console.error("Failed to get installed apps:", e);
     return [];
   }
 };
@@ -1646,6 +1662,7 @@ ipcMain.handle("get-uwp-apps", async () => {
       "Get-AppxPackage -PackageTypeFilter Main | Where-Object { $_.InstallLocation -ne $null } | Select-Object Name, PackageFullName, Version, Publisher, InstallLocation | ConvertTo-Json";
     exec(`powershell -Command "${psCommand}"`, (error, stdout) => {
       if (error) {
+        console.error("UWP detection error:", error);
         resolve({ error: error.message });
         return;
       }
