@@ -6,6 +6,6 @@ require("node:path");
 require("node:fs/promises");
 require("node:os");
 require("node:child_process");
-require("./main-Cd0LA6EB.cjs");
+require("./main-xnTHaNwA.cjs");
 require("node:util");
 require("node:crypto");

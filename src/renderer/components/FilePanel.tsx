@@ -1423,9 +1423,10 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
           }}
           onUnlockSuccess={() => {
             if (!pinModal.targetPath) return;
+            const targetPath = pinModal.targetPath;
             const performUnlock = async () => {
               const result = await (window as any).electronAPI.unlockFolderOs(
-                pinModal.targetPath,
+                targetPath,
                 { hide: true, deny: true },
               );
               if (result?.error) {
@@ -1434,12 +1435,12 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
               }
 
               if (pinModal.intent === "navigate") {
-                unlockPath(pinModal.targetPath);
-                navigateTo(side, activeTabId, pinModal.targetPath);
+                unlockPath(targetPath);
+                navigateTo(side, activeTabId, targetPath);
                 return;
               }
               if (pinModal.intent === "remove-lock") {
-                unlockPath(pinModal.targetPath);
+                unlockPath(targetPath);
               }
             };
             performUnlock();
