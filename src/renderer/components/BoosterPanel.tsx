@@ -34,6 +34,57 @@ type BoostReport = {
   idleCandidates: number;
   healthScore: number;
   completedAt: string;
+  isDryRun: boolean;
+};
+
+const Toggle: React.FC<{
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (val: boolean) => void;
+  color?: "emerald" | "amber";
+}> = ({ label, description, checked, onChange, color = "emerald" }) => {
+  return (
+    <button
+      onClick={() => onChange(!checked)}
+      className="flex items-center gap-4 p-4 rounded-2xl bg-slate-900/40 border border-slate-800/60 hover:border-slate-700/80 hover:bg-slate-900/60 transition-all text-left outline-none group"
+    >
+      <div
+        className={clsx(
+          "relative w-12 h-6 rounded-full transition-colors shrink-0",
+          checked
+            ? color === "emerald"
+              ? "bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)]"
+              : "bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.4)]"
+            : "bg-slate-800",
+        )}
+      >
+        <div
+          className={clsx(
+            "absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform duration-200",
+            checked && "translate-x-6",
+          )}
+        />
+      </div>
+      <div className="flex flex-col gap-0.5 min-w-0">
+        <span
+          className={clsx(
+            "text-sm font-bold transition-colors truncate",
+            checked
+              ? color === "emerald"
+                ? "text-emerald-400"
+                : "text-amber-400"
+              : "text-slate-200",
+          )}
+        >
+          {label}
+        </span>
+        <span className="text-[10px] text-slate-500 font-medium truncate">
+          {description}
+        </span>
+      </div>
+    </button>
+  );
 };
 
 const BoosterPanel: React.FC = () => {
@@ -52,6 +103,13 @@ const BoosterPanel: React.FC = () => {
   const [idleFilter, setIdleFilter] = useState<"completed" | "failed">(
     "completed",
   );
+  
+  // New State for Optimization Options
+  const [dryRun, setDryRun] = useState(false);
+  const [optPower, setOptPower] = useState(true);
+  const [optVisual, setOptVisual] = useState(false); // Default off as it affects UI
+  const [optDisk, setOptDisk] = useState(true);
+  const [optServices, setOptServices] = useState(false); // Advanced users only
 
   const healthLabel = useMemo(() => {
     if (!report) return "Ready";
@@ -63,12 +121,30 @@ const BoosterPanel: React.FC = () => {
 
   const runBoost = async () => {
     if (boosting) return;
+    
+    // Show confirmation dialog (skip if dry run)
+    if (!dryRun) {
+      const confirmed = window.confirm(
+        "⚡ System Boost Confirmation\n\n" +
+        "This will perform the following actions:\n" +
+        "• Clean temporary files (older than 1 hour)\n" +
+        "• Disable non-essential startup items\n" +
+        "• Stop idle background processes\n" +
+        (optPower ? "• Set High Performance power plan\n" : "") +
+        (optVisual ? "• Optimize visual effects\n" : "") +
+        (optDisk ? "• Run Disk Cleanup\n" : "") +
+        "\nDo you want to continue?"
+      );
+      
+      if (!confirmed) return;
+    }
+    
     setError(null);
     setReport(null);
     setBoostMessage(null);
     setBoosting(true);
     setProgress(5);
-    setStage("Scanning system");
+    setStage(dryRun ? "Simulating system scan..." : "Scanning system");
 
     try {
       const getProcessList = async () =>
@@ -84,18 +160,18 @@ const BoosterPanel: React.FC = () => {
       const idleCandidates = processes.filter((p) => isIdleProcess(p));
 
       setProgress(35);
-      setStage("Cleaning temp files");
-      const tempRes = await (window as any).electronAPI.cleanTemp();
+      setStage(dryRun ? "Finding temp files..." : "Cleaning temp files");
+      const tempRes = await (window as any).electronAPI.cleanTemp(dryRun);
       const tempDeleted = tempRes?.deletedCount || 0;
       const tempFailed = tempRes?.failedCount || 0;
       const tempFailedItems: string[] = tempRes?.failedItems || [];
 
       setProgress(60);
-      setStage("Disabling startup items");
+      setStage(dryRun ? "Analyzing startup items..." : "Disabling startup items");
       const startupTargets = startupItems.filter((s) => canDisableStartup(s));
       const startupResults = await Promise.allSettled(
         startupTargets.map((s) =>
-          (window as any).electronAPI.disableStartupItem(s),
+          (window as any).electronAPI.disableStartupItem(s, dryRun),
         ),
       );
       const startupDisabledItems: string[] = [];
@@ -115,10 +191,10 @@ const BoosterPanel: React.FC = () => {
       const startupFailed = startupFailedItems.length;
 
       setProgress(80);
-      setStage("Stopping idle background apps");
+      setStage(dryRun ? "Identifying idle background apps..." : "Stopping idle background apps");
       const killResults = await Promise.allSettled(
         idleCandidates.map((p) =>
-          (window as any).electronAPI.killProcess(p.Id),
+          (window as any).electronAPI.killProcess(p.Id, dryRun),
         ),
       );
       const processesStoppedItems: string[] = [];
@@ -140,12 +216,20 @@ const BoosterPanel: React.FC = () => {
       const now = Date.now();
       if (!didAnything) {
         if (lastBoostAt && now - lastBoostAt < 10 * 60 * 1000) {
-          setBoostMessage("It already boosted.");
+          setBoostMessage("System was recently optimized. No further action needed.");
         } else {
-          setBoostMessage("It already boosted.");
+          setBoostMessage("System is already optimized. No issues found.");
         }
         setStage("Already boosted");
         setProgress(100);
+      }
+
+      // Run additional optimizations if enabled and not dry run
+      if (!dryRun) {
+        if (optPower) await (window as any).electronAPI.optimizePowerPlan();
+        if (optVisual) await (window as any).electronAPI.optimizeVisualEffects();
+        if (optDisk) await (window as any).electronAPI.runDiskCleanup();
+        if (optServices) await (window as any).electronAPI.optimizeServices();
       }
 
       setProgress(100);
@@ -174,6 +258,7 @@ const BoosterPanel: React.FC = () => {
         idleCandidates: idleCandidates.length,
         healthScore: Math.min(100, score),
         completedAt: new Date().toLocaleString(),
+        isDryRun: dryRun,
       });
       setLastBoostAt(Date.now());
     } catch (e: any) {
@@ -190,26 +275,6 @@ const BoosterPanel: React.FC = () => {
           <Rocket size={20} className="text-emerald-400" />
         </div>
         <h2 className="text-lg font-bold text-slate-100">Booster</h2>
-        <div className="ml-auto flex items-center gap-2">
-          {!hasReport && (
-            <button
-              onClick={runBoost}
-              disabled={boosting}
-              className={clsx(
-                "px-4 py-1.5 rounded-lg text-xs font-bold shadow-lg flex items-center gap-2 transition-transform",
-                boosting
-                  ? "bg-slate-700 text-slate-300"
-                  : "bg-emerald-500 text-white shadow-emerald-500/30 hover:scale-105",
-              )}
-            >
-              <RefreshCw
-                size={14}
-                className={clsx(boosting && "animate-spin")}
-              />
-              Boost Now
-            </button>
-          )}
-        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-8">
@@ -242,11 +307,13 @@ const BoosterPanel: React.FC = () => {
                         "h-44 w-44 rounded-full flex flex-col items-center justify-center text-center transition-all cursor-pointer",
                         boosting
                           ? "bg-slate-700 text-slate-200"
-                          : "bg-emerald-500 text-white shadow-[0_0_40px_rgba(16,185,129,0.6)] hover:scale-105",
+                          : dryRun
+                             ? "bg-amber-500 text-white shadow-[0_0_40px_rgba(245,158,11,0.6)] hover:scale-105"
+                             : "bg-emerald-500 text-white shadow-[0_0_40px_rgba(16,185,129,0.6)] hover:scale-105",
                       )}
                     >
                       <div className="text-3xl font-black tracking-tight">
-                        {boosting ? "BOOSTING" : "BOOST"}
+                        {boosting ? "WORKING" : dryRun ? "PREVIEW" : "BOOST"}
                       </div>
                       <div className="text-xs uppercase tracking-[0.3em] mt-2">
                         {boosting ? `${progress}%` : "Ready"}
@@ -254,18 +321,49 @@ const BoosterPanel: React.FC = () => {
                     </button>
                   </div>
                 </div>
+                {/* Spinners */}
                 <div
-                  className="absolute inset-0 rounded-full border-4 border-emerald-500/40 animate-spin pointer-events-none"
+                  className={clsx(
+                    "absolute inset-0 rounded-full border-4 animate-spin pointer-events-none",
+                    dryRun ? "border-amber-500/40" : "border-emerald-500/40"
+                  )}
                   style={{ animationDuration: "8s" }}
                 />
-                <div className="absolute inset-4 rounded-full border-2 border-emerald-400/20 pointer-events-none" />
+                <div className={clsx("absolute inset-4 rounded-full border-2 pointer-events-none", dryRun ? "border-amber-400/20" : "border-emerald-400/20")} />
               </div>
-              <div className="mt-6 text-center">
-                {/* <div className="text-sm uppercase tracking-[0.3em] text-emerald-400">
-                  {stage}
-                </div> */}
+
+              {/* Optimization Options */}
+              <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-xl px-4">
+                <Toggle
+                  label="Dry Run (Preview Mode)"
+                  description="Scan system without making any changes"
+                  checked={dryRun}
+                  onChange={setDryRun}
+                  color="amber"
+                />
+                <Toggle
+                  label="High Performance"
+                  description="Optimize power plan for maximum speed"
+                  checked={optPower}
+                  onChange={setOptPower}
+                />
+                <Toggle
+                  label="Disk Cleanup"
+                  description="Run Windows native disk cleanup utility"
+                  checked={optDisk}
+                  onChange={setOptDisk}
+                />
+                <Toggle
+                  label="Visual Effects"
+                  description="Disable animations for snappier UI"
+                  checked={optVisual}
+                  onChange={setOptVisual}
+                />
+              </div>
+
+              <div className="mt-8 text-center min-h-[24px]">
                 {boostMessage && (
-                  <div className="mt-2 text-xs font-bold text-emerald-300">
+                  <div className="text-xs font-bold text-emerald-300 animate-in fade-in slide-in-from-bottom-2">
                     {boostMessage}
                   </div>
                 )}
@@ -295,10 +393,10 @@ const BoosterPanel: React.FC = () => {
                     Temp Cleanup
                   </div>
                   <div className="mt-2 text-lg font-bold text-slate-100">
-                    {report ? report.tempDeleted : "--"} cleaned
+                    {report ? report.tempDeleted : "--"} {report?.isDryRun ? "found" : "cleaned"}
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    Failed: {report ? report.tempFailed : "--"}
+                    {report?.isDryRun ? "Potential issues" : "Failed: " + (report ? report.tempFailed : "--")}
                   </div>
                 </div>
 
@@ -307,10 +405,10 @@ const BoosterPanel: React.FC = () => {
                     Startup Items
                   </div>
                   <div className="mt-2 text-lg font-bold text-slate-100">
-                    {report ? report.startupDisabled : "--"} disabled
+                    {report ? report.startupDisabled : "--"} {report?.isDryRun ? "found" : "disabled"}
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    Failed: {report ? report.startupFailed : "--"}
+                    {report?.isDryRun ? "Available to disable" : "Failed: " + (report ? report.startupFailed : "--")}
                   </div>
                 </div>
 
@@ -319,10 +417,10 @@ const BoosterPanel: React.FC = () => {
                     Idle Apps
                   </div>
                   <div className="mt-2 text-lg font-bold text-slate-100">
-                    {report ? report.processesStopped : "--"} stopped
+                    {report ? report.processesStopped : "--"} {report?.isDryRun ? "found" : "stopped"}
                   </div>
                   <div className="text-[11px] text-slate-500">
-                    Candidates: {report ? report.idleCandidates : "--"}
+                    {report?.isDryRun ? "Idle candidates" : "Candidates: " + (report ? report.idleCandidates : "--")}
                   </div>
                 </div>
 
@@ -518,6 +616,17 @@ const PROTECTED_KEYWORDS = [
   "kernel",
   "service",
   "driver",
+  // Cloud sync and backup services
+  "dropbox",
+  "onedrive",
+  "google drive",
+  "googledrivesync",
+  "icloud",
+  "backup",
+  "sync",
+  "cloud",
+  "crashplan",
+  "carbonite",
 ].map((k) => k.toLowerCase());
 
 const isProtectedProcess = (name?: string) => {
@@ -543,10 +652,31 @@ const isIdleProcess = (p: ProcessInfo) => {
   const started = parseProcessTime(p.StartTime);
   if (!started) return false;
   const uptimeMs = Date.now() - started.getTime();
-  return uptimeMs > 2 * 60 * 1000;
+  // Increased from 2 minutes to 30 minutes to avoid killing important background services
+  return uptimeMs > 30 * 60 * 1000;
 };
 
+const CRITICAL_STARTUP_ITEMS = [
+  "windows defender",
+  "security health",
+  "windows security",
+  "ctfmon", // Text services
+  "igfxtray", // Intel graphics
+  "nvbackend", // NVIDIA
+  "amd",
+  "radeon",
+  "realtek",
+  "audio",
+];
+
 const canDisableStartup = (item: StartupItem) => {
+  const name = (item.Name || "").toLowerCase();
+  
+  // Check critical whitelist
+  if (CRITICAL_STARTUP_ITEMS.some(critical => name.includes(critical))) {
+    return false;
+  }
+
   const location = (item.Location || "").toLowerCase();
   if (location.includes("\\microsoft\\windows\\currentversion\\run")) {
     return true;

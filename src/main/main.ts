@@ -284,14 +284,24 @@ ipcMain.handle("get-startup-items", async () => {
   }
 });
 
-ipcMain.handle("disable-startup-item", async (_event, item: any) => {
+ipcMain.handle("disable-startup-item", async (_event, item: any, dryRun = false) => {
   try {
     if (!item?.Name || !item?.Location) {
       return { error: "INVALID_STARTUP_ITEM" };
     }
 
-    const location = String(item.Location);
-    const name = String(item.Name);
+    if (dryRun) return { success: true };
+
+    const location = String(item.Location).trim();
+    const name = String(item.Name).trim();
+
+    // Validate inputs to prevent command injection
+    if (location.includes('"') || location.includes('&') || location.includes('|')) {
+      return { error: "INVALID_LOCATION_FORMAT" };
+    }
+    if (name.includes('"') || name.includes('&') || name.includes('|')) {
+      return { error: "INVALID_NAME_FORMAT" };
+    }
 
     const isRunKey = /\\Microsoft\\Windows\\CurrentVersion\\Run/i.test(
       location,
@@ -301,7 +311,10 @@ ipcMain.handle("disable-startup-item", async (_event, item: any) => {
     );
 
     if (isRunKey || isRunOnce) {
-      await execAsync(`reg delete "${location}" /v "${name}" /f`);
+      // Escape quotes for registry command
+      const escapedLocation = location.replace(/"/g, '""');
+      const escapedName = name.replace(/"/g, '""');
+      await execAsync(`reg delete "${escapedLocation}" /v "${escapedName}" /f`);
       return { success: true };
     }
 
@@ -388,25 +401,57 @@ ipcMain.handle("get-process-list", async () => {
   }
 });
 
-ipcMain.handle("kill-process", async (_event, pid: number) => {
+ipcMain.handle("kill-process", async (_event, pid: number, dryRun = false) => {
   try {
-    if (!pid) return { error: "PID_REQUIRED" };
-    await execAsync(`taskkill /PID ${pid} /F`);
+    // Strict validation to prevent command injection
+    const numericPid = Number(pid);
+    if (!Number.isInteger(numericPid) || numericPid <= 0) {
+      return { error: "INVALID_PID" };
+    }
+    
+    if (dryRun) return { success: true };
+
+    // Use validated numeric PID
+    await execAsync(`taskkill /PID ${numericPid} /F`);
     return { success: true };
   } catch (error: any) {
     return { error: error.message };
   }
 });
 
-ipcMain.handle("clean-temp", async () => {
+ipcMain.handle("clean-temp", async (_event, dryRun = false) => {
   try {
     const tempDir = os.tmpdir();
     const entries = await fs.readdir(tempDir, { withFileTypes: true });
     let deletedCount = 0;
     let failedCount = 0;
     const failedItems: string[] = [];
+    const now = Date.now();
+    const ONE_HOUR = 60 * 60 * 1000;
+    const MAX_SAFE_SIZE = 100 * 1024 * 1024; // 100MB
 
-    const targets = entries.map((entry) => path.join(tempDir, entry.name));
+    const targets: string[] = [];
+    
+    // Filter files by age and size
+    for (const entry of entries) {
+      const fullPath = path.join(tempDir, entry.name);
+      try {
+        const stats = await fs.stat(fullPath);
+        const age = now - stats.mtime.getTime();
+        
+        // Only delete files older than 1 hour and smaller than 100MB
+        if (age > ONE_HOUR && stats.size < MAX_SAFE_SIZE) {
+          targets.push(fullPath);
+        }
+      } catch (e) {
+        // Skip files we can't access
+      }
+    }
+
+    if (dryRun) {
+      return { success: true, deletedCount: targets.length, failedCount: 0, failedItems: [] };
+    }
+
     const results = await Promise.allSettled(
       targets.map(async (target) => {
         await fs.rm(target, { recursive: true, force: true });
@@ -430,6 +475,64 @@ ipcMain.handle("clean-temp", async () => {
 ipcMain.handle("open-windows-update", async () => {
   try {
     await shell.openExternal("ms-settings:windowsupdate");
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("optimize-power-plan", async () => {
+  try {
+    // Set to High Performance power plan
+    // This GUID is consistent across Windows versions for High Performance
+    await execAsync("powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("optimize-visual-effects", async () => {
+  try {
+    // Adjust visual effects for best performance
+    // Disable menu animations
+    await execAsync('reg add "HKCU\\Control Panel\\Desktop" /v "UserPreferencesMask" /t REG_BINARY /d "9012038010000000" /f');
+    // Disable window animations
+    await execAsync('reg add "HKCU\\Control Panel\\Desktop\\WindowMetrics" /v "MinAnimate" /t REG_SZ /d "0" /f');
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("run-disk-cleanup", async () => {
+  try {
+    // Run standard Windows Disk Cleanup
+    await execAsync("cleanmgr /sagerun:1");
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("optimize-services", async () => {
+  try {
+    const servicesToDisable = [
+      "DiagTrack", // Connected User Experiences and Telemetry
+      "dmwappushservice", // WAP Push Message Routing Service (telemetry)
+      "MapsBroker", // Downloaded Maps Manager
+      "lfsvc", // Geolocation Service
+    ];
+    
+    for (const service of servicesToDisable) {
+      // Check if service exists first to avoid errors
+      try {
+        await execAsync(`sc config "${service}" start= disabled`);
+        await execAsync(`sc stop "${service}"`);
+      } catch (e) {
+        // Service might not exist or access denied, ignore
+      }
+    }
     return { success: true };
   } catch (error: any) {
     return { error: error.message };
@@ -1137,13 +1240,59 @@ ipcMain.handle("get-advanced-stats", async (_event, dirPath: string) => {
 
     const now = Date.now();
     const oneDay = 24 * 60 * 60 * 1000;
+    const scanStartTime = Date.now();
+    const SCAN_TIMEOUT = 45000; // 45 seconds
+    let scanAborted = false;
+
+    // Determine max depth based on drive
+    const isCDrive = dirPath.toLowerCase().startsWith("c:");
+    const maxDepth = isCDrive ? 5 : 7;
+
+    // Folders to skip entirely
+    const skipFolders = new Set([
+      "$recycle.bin",
+      "system volume information",
+      "recovery",
+      "node_modules",
+      "windows.old",
+    ]);
 
     const scan = async (d: string, depth = 0) => {
+      // Check timeout
+      if (Date.now() - scanStartTime > SCAN_TIMEOUT) {
+        scanAborted = true;
+        return;
+      }
+
+      // Check depth limit
+      if (depth >= maxDepth) {
+        return;
+      }
+
       try {
         const entries = await fs.readdir(d, { withFileTypes: true });
+
+        // Skip directories with too many files (likely system cache)
+        if (entries.length > 10000) {
+          return;
+        }
         for (const entry of entries) {
+          if (scanAborted) break;
+
           const fullPath = path.join(d, entry.name);
+          const entryNameLower = entry.name.toLowerCase();
+
           if (entry.isDirectory()) {
+            // Skip specific folders
+            if (skipFolders.has(entryNameLower)) {
+              continue;
+            }
+
+            // Skip hidden system folders starting with $
+            if (entry.name.startsWith("$")) {
+              continue;
+            }
+
             await scan(fullPath, depth + 1);
           } else {
             try {
