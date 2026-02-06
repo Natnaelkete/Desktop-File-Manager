@@ -3,6 +3,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import fs_native from "node:fs";
 import path from "node:path";
 import fs from "node:fs/promises";
+import os from "node:os";
 import { exec, spawn } from "node:child_process";
 // @ts-ignore
 import regedit from "regedit";
@@ -46,6 +47,7 @@ const installedAppsCache = {
 };
 let installedAppsInFlight: Promise<any[]> | null = null;
 let installedAppsCacheLoaded = false;
+let lastProcessSample = new Map<number, { cpu: number; ts: number }>();
 
 const getInstalledAppsCachePath = () =>
   path.join(app.getPath("userData"), "installedAppsCache.json");
@@ -245,6 +247,189 @@ ipcMain.handle("open-terminal", async (_event, dirPath: string) => {
   }
 });
 
+ipcMain.handle("get-driver-report", async () => {
+  try {
+    const data = await runPowerShellJson(
+      "Get-CimInstance Win32_PnPSignedDriver | Select-Object DeviceName,DriverVersion,Manufacturer,DriverDate,DriverProviderName,InfName | ConvertTo-Json -Compress",
+    );
+    return { data };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("get-startup-items", async () => {
+  try {
+    const data = await runPowerShellJson(
+      "Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location,User | ConvertTo-Json -Compress",
+    );
+    return { data };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("disable-startup-item", async (_event, item: any) => {
+  try {
+    if (!item?.Name || !item?.Location) {
+      return { error: "INVALID_STARTUP_ITEM" };
+    }
+
+    const location = String(item.Location);
+    const name = String(item.Name);
+
+    const isRunKey = /\\Microsoft\\Windows\\CurrentVersion\\Run/i.test(
+      location,
+    );
+    const isRunOnce = /\\Microsoft\\Windows\\CurrentVersion\\RunOnce/i.test(
+      location,
+    );
+
+    if (isRunKey || isRunOnce) {
+      await execAsync(`reg delete "${location}" /v "${name}" /f`);
+      return { success: true };
+    }
+
+    const isStartupFolder = /startup/i.test(location);
+    if (isStartupFolder) {
+      const cmdPathRaw = extractCommandPath(String(item.Command || ""));
+      const cmdPath = cmdPathRaw ? expandEnvVars(cmdPathRaw) : null;
+      const resolvedCmd = cmdPath
+        ? fs_native.existsSync(cmdPath)
+          ? cmdPath
+          : fs_native.existsSync(path.resolve(cmdPath))
+            ? path.resolve(cmdPath)
+            : null
+        : null;
+
+      const startupDirs = [
+        path.join(
+          process.env.APPDATA || "",
+          "Microsoft",
+          "Windows",
+          "Start Menu",
+          "Programs",
+          "Startup",
+        ),
+        path.join(
+          process.env.PROGRAMDATA || "C:\\ProgramData",
+          "Microsoft",
+          "Windows",
+          "Start Menu",
+          "Programs",
+          "StartUp",
+        ),
+      ].filter((p) => p && p.length > 0);
+
+      const candidates = [] as string[];
+      if (resolvedCmd) candidates.push(resolvedCmd);
+      const name = String(item.Name || "").trim();
+      if (name) {
+        const fileName = name.toLowerCase().endsWith(".lnk")
+          ? name
+          : `${name}.lnk`;
+        for (const dir of startupDirs) {
+          candidates.push(path.join(dir, fileName));
+        }
+      }
+
+      const target = candidates.find((p) => fs_native.existsSync(p)) || null;
+      if (!target) return { error: "STARTUP_PATH_NOT_FOUND" };
+      await fs.rename(target, `${target}.disabled`);
+      return { success: true };
+    }
+
+    return { error: "UNSUPPORTED_STARTUP_LOCATION" };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("get-process-list", async () => {
+  try {
+    const now = Date.now();
+    const data = await runPowerShellJson(
+      "Get-Process | Select-Object Id,ProcessName,CPU,WS,StartTime,MainWindowTitle | ConvertTo-Json -Compress",
+    );
+    const cpuCount = os.cpus().length || 1;
+    const nextSample = new Map<number, { cpu: number; ts: number }>();
+    const enriched = (data || []).map((p: any) => {
+      const pid = Number(p.Id);
+      const cpu = typeof p.CPU === "number" ? p.CPU : 0;
+      let cpuPercent: number | null = null;
+      const prev = lastProcessSample.get(pid);
+      if (prev && now > prev.ts) {
+        const deltaSeconds = (now - prev.ts) / 1000;
+        const deltaCpu = Math.max(0, cpu - prev.cpu);
+        cpuPercent = (deltaCpu / deltaSeconds) * (100 / cpuCount);
+      }
+      nextSample.set(pid, { cpu, ts: now });
+      return { ...p, CPUPercent: cpuPercent };
+    });
+    lastProcessSample = nextSample;
+    return { data: enriched };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("kill-process", async (_event, pid: number) => {
+  try {
+    if (!pid) return { error: "PID_REQUIRED" };
+    await execAsync(`taskkill /PID ${pid} /F`);
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("clean-temp", async () => {
+  try {
+    const tempDir = os.tmpdir();
+    const entries = await fs.readdir(tempDir, { withFileTypes: true });
+    let deletedCount = 0;
+    let failedCount = 0;
+    const failedItems: string[] = [];
+
+    const targets = entries.map((entry) => path.join(tempDir, entry.name));
+    const results = await Promise.allSettled(
+      targets.map(async (target) => {
+        await fs.rm(target, { recursive: true, force: true });
+        deletedCount += 1;
+      }),
+    );
+
+    for (let i = 0; i < results.length; i += 1) {
+      if (results[i].status === "rejected") {
+        failedCount += 1;
+        failedItems.push(targets[i]);
+      }
+    }
+
+    return { success: true, deletedCount, failedCount, failedItems };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("open-windows-update", async () => {
+  try {
+    await shell.openExternal("ms-settings:windowsupdate");
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("open-startup-settings", async () => {
+  try {
+    await shell.openExternal("ms-settings:startupapps");
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
 const applyHiddenAttributes = async (targetPath: string) => {
   await execAsync(`attrib +h +s "${targetPath}"`);
 };
@@ -428,6 +613,49 @@ const ensureUniquePath = (targetPath: string) => {
 
 const execAsync = promisify(exec);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const runPowerShellJson = async (command: string) => {
+  const escaped = command.replace(/"/g, '\\"');
+  const ps = ["$ProgressPreference='SilentlyContinue'", escaped].join("; ");
+  const { stdout } = await execAsync(
+    `powershell -NoProfile -NonInteractive -Command "${ps}"`,
+  );
+  const text = (stdout || "").trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    const start = Math.min(
+      ...[text.indexOf("["), text.indexOf("{")].filter((i) => i >= 0),
+    );
+    const end = Math.max(text.lastIndexOf("]"), text.lastIndexOf("}"));
+    if (start >= 0 && end > start) {
+      const slice = text.slice(start, end + 1);
+      const parsed = JSON.parse(slice);
+      return Array.isArray(parsed) ? parsed : [parsed];
+    }
+    throw new Error("POWER_SHELL_JSON_PARSE_FAILED");
+  }
+};
+
+const expandEnvVars = (input: string) =>
+  input.replace(/%([^%]+)%/g, (match, key) => {
+    const val = process.env[String(key).toUpperCase()];
+    return val || match;
+  });
+
+const extractCommandPath = (command?: string) => {
+  if (!command) return null;
+  const trimmed = command.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('"')) {
+    const end = trimmed.indexOf('"', 1);
+    if (end > 1) return trimmed.slice(1, end);
+  }
+  const first = trimmed.split(/\s+/)[0];
+  return first || null;
+};
 
 process.env.DIST = path.join(__dirname, "../dist");
 process.env.VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];

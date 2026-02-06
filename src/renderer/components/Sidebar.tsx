@@ -15,6 +15,7 @@ import {
   Smartphone,
   Globe,
   Package,
+  Rocket,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -77,6 +78,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const tools = [
     { label: "Apps", view: "apps", icon: Package },
+    { label: "Booster", view: "booster", icon: Rocket },
     { label: "Network", view: "network", icon: Globe },
   ];
 

@@ -282,7 +282,7 @@ interface AppState {
   bottomRightSelection: string[];
 
   searchQuery: string;
-  activeView: "explorer" | "analyzer" | "apps" | "network";
+  activeView: "explorer" | "analyzer" | "apps" | "network" | "booster";
   activeSide: "left" | "right" | "bottomLeft" | "bottomRight";
   showHidden: boolean;
   paneCount: 1 | 2 | 4; // Replaces dualPane logic
@@ -331,7 +331,9 @@ interface AppState {
     selection: string[],
   ) => void;
   setSearchQuery: (query: string) => void;
-  setActiveView: (view: "explorer" | "analyzer" | "apps" | "network") => void;
+  setActiveView: (
+    view: "explorer" | "analyzer" | "apps" | "network" | "booster",
+  ) => void;
   setInstalledApps: (apps: any[]) => void;
   setUwpApps: (apps: any[]) => void;
   setOrphans: (orphans: any[]) => void;

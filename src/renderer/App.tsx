@@ -8,6 +8,7 @@ import ImageViewer from "./components/ImageViewer";
 import TextEditor from "./components/TextEditor";
 import AppManager from "./components/AppManager";
 import NetworkPanel from "./components/NetworkPanel";
+import BoosterPanel from "./components/BoosterPanel";
 import { useStore } from "./stores/store";
 import {
   Search,
@@ -137,6 +138,7 @@ const App: React.FC = () => {
     hotkeys("ctrl+2", () => setActiveView("analyzer"));
     hotkeys("ctrl+3", () => setActiveView("apps"));
     hotkeys("ctrl+4", () => setActiveView("network"));
+    hotkeys("ctrl+5", () => setActiveView("booster"));
     hotkeys("ctrl+w", (e) => {
       e.preventDefault();
       const {
@@ -164,7 +166,7 @@ const App: React.FC = () => {
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      hotkeys.unbind("ctrl+t,ctrl+f,ctrl+1,ctrl+2,ctrl+3,ctrl+4");
+      hotkeys.unbind("ctrl+t,ctrl+f,ctrl+1,ctrl+2,ctrl+3,ctrl+4,ctrl+5");
       window.removeEventListener("open-image", handleOpenImage);
       window.removeEventListener("open-text", handleOpenText);
     };
@@ -452,6 +454,17 @@ const App: React.FC = () => {
                   className="flex-1"
                 >
                   <NetworkPanel />
+                </motion.div>
+              )}
+              {activeView === "booster" && (
+                <motion.div
+                  key="booster"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  className="flex-1"
+                >
+                  <BoosterPanel />
                 </motion.div>
               )}
             </AnimatePresence>

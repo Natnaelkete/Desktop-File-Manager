@@ -43,6 +43,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     path: string,
     options?: { hide?: boolean; deny?: boolean },
   ) => ipcRenderer.invoke("unlock-folder-os", path, options),
+  getDriverReport: () => ipcRenderer.invoke("get-driver-report"),
+  getStartupItems: () => ipcRenderer.invoke("get-startup-items"),
+  disableStartupItem: (item: any) =>
+    ipcRenderer.invoke("disable-startup-item", item),
+  getProcessList: () => ipcRenderer.invoke("get-process-list"),
+  killProcess: (pid: number) => ipcRenderer.invoke("kill-process", pid),
+  cleanTemp: () => ipcRenderer.invoke("clean-temp"),
+  openWindowsUpdate: () => ipcRenderer.invoke("open-windows-update"),
+  openStartupSettings: () => ipcRenderer.invoke("open-startup-settings"),
   getInstalledApps: (options?: { force?: boolean }) =>
     ipcRenderer.invoke("get-installed-apps", options),
   runUninstaller: (uninstallString: string) =>
