@@ -382,10 +382,9 @@ const BoosterPanel: React.FC = () => {
                         {item}
                       </div>
                     ))}
-                    {(
-                      startupFilter === "completed"
-                        ? report?.startupDisabledItems
-                        : report?.startupFailedItems
+                    {(startupFilter === "completed"
+                      ? report?.startupDisabledItems
+                      : report?.startupFailedItems
                     )?.length === 0 && (
                       <div className="text-slate-500">No items.</div>
                     )}
@@ -434,10 +433,9 @@ const BoosterPanel: React.FC = () => {
                         {item}
                       </div>
                     ))}
-                    {(
-                      idleFilter === "completed"
-                        ? report?.processesStoppedItems
-                        : report?.processesFailedItems
+                    {(idleFilter === "completed"
+                      ? report?.processesStoppedItems
+                      : report?.processesFailedItems
                     )?.length === 0 && (
                       <div className="text-slate-500">No items.</div>
                     )}
