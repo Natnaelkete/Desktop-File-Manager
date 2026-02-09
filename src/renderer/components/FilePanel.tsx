@@ -729,6 +729,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     }
 
     if (action === "delete" && selection.length > 0) {
+      const { confirmOnDelete } = useStore.getState();
+      if (confirmOnDelete) {
+        if (!confirm(`Are you sure you want to delete ${selection.length} item(s)?`)) {
+          setMenuPos(null);
+          return;
+        }
+      }
       await (window as any).electronAPI.deleteItems(selection);
       refresh(tab.path);
       setSelection(side, []);

@@ -117,6 +117,7 @@ const withTimeout = async <T>(promise: Promise<T>, ms: number) => {
   if (timeoutId) clearTimeout(timeoutId);
   return result;
 };
+
 ipcMain.handle("read-file", async (_event, filePath: string) => {
   try {
     return await fs.readFile(filePath, "utf8");
@@ -475,6 +476,16 @@ ipcMain.handle("clean-temp", async (_event, dryRun = false) => {
 ipcMain.handle("open-windows-update", async () => {
   try {
     await shell.openExternal("ms-settings:windowsupdate");
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+});
+
+ipcMain.handle("configure-disk-cleanup", async () => {
+  try {
+    // sageset:1 allows the user to configure the flags for cleaner
+    await execAsync("cleanmgr /sageset:1");
     return { success: true };
   } catch (error: any) {
     return { error: error.message };

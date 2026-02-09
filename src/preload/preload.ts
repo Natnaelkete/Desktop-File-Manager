@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("copy-items", sourcePaths, destDir),
   moveItems: (sourcePaths: string[], destDir: string) =>
     ipcRenderer.invoke("move-items", sourcePaths, destDir),
+  configureDiskCleanup: () => ipcRenderer.invoke("configure-disk-cleanup"),
   onMainMessage: (callback: any) =>
     ipcRenderer.on("main-process-message", (_event, value) => callback(value)),
 });

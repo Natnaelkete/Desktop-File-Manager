@@ -7,8 +7,8 @@ import DiskAnalyzer from "./components/DiskAnalyzer";
 import ImageViewer from "./components/ImageViewer";
 import TextEditor from "./components/TextEditor";
 import AppManager from "./components/AppManager";
-import NetworkPanel from "./components/NetworkPanel";
 import BoosterPanel from "./components/BoosterPanel";
+import SettingsPanel from "./components/SettingsPanel";
 import { useStore } from "./stores/store";
 import {
   Search,
@@ -137,8 +137,8 @@ const App: React.FC = () => {
     hotkeys("ctrl+1", () => setActiveView("explorer"));
     hotkeys("ctrl+2", () => setActiveView("analyzer"));
     hotkeys("ctrl+3", () => setActiveView("apps"));
-    hotkeys("ctrl+4", () => setActiveView("network"));
     hotkeys("ctrl+5", () => setActiveView("booster"));
+    hotkeys("ctrl+6", () => setActiveView("settings"));
     hotkeys("ctrl+w", (e) => {
       e.preventDefault();
       const {
@@ -291,7 +291,13 @@ const App: React.FC = () => {
             >
               <Grid size={20} />
             </button>
-            <button className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
+            <button 
+              onClick={() => setActiveView("settings")}
+              className={clsx(
+                "p-2 rounded-lg transition-colors",
+                activeView === "settings" ? "bg-primary-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+              )}
+            >
               <Settings size={20} />
             </button>
           </div>
@@ -445,17 +451,6 @@ const App: React.FC = () => {
                   <AppManager />
                 </motion.div>
               )}
-              {activeView === "network" && (
-                <motion.div
-                  key="network"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 20 }}
-                  className="flex-1"
-                >
-                  <NetworkPanel />
-                </motion.div>
-              )}
               {activeView === "booster" && (
                 <motion.div
                   key="booster"
@@ -465,6 +460,17 @@ const App: React.FC = () => {
                   className="flex-1"
                 >
                   <BoosterPanel />
+                </motion.div>
+              )}
+              {activeView === "settings" && (
+                <motion.div
+                  key="settings"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  className="flex-1"
+                >
+                  <SettingsPanel />
                 </motion.div>
               )}
             </AnimatePresence>

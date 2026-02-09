@@ -139,6 +139,11 @@ const persistLastSession = (state: AppState) => {
         history: t.history,
         historyIndex: t.historyIndex,
       })),
+      showHidden: state.showHidden,
+      confirmOnDelete: state.confirmOnDelete,
+      autoRenameConflicts: state.autoRenameConflicts,
+      aggressiveCleanup: state.aggressiveCleanup,
+      weeklyAutoBoost: state.weeklyAutoBoost,
     };
     window.localStorage.setItem(sessionKey, JSON.stringify(payload));
   } catch {
@@ -282,9 +287,13 @@ interface AppState {
   bottomRightSelection: string[];
 
   searchQuery: string;
-  activeView: "explorer" | "analyzer" | "apps" | "network" | "booster";
+  activeView: "explorer" | "analyzer" | "apps" | "booster" | "settings";
   activeSide: "left" | "right" | "bottomLeft" | "bottomRight";
   showHidden: boolean;
+  confirmOnDelete: boolean;
+  autoRenameConflicts: boolean;
+  aggressiveCleanup: boolean;
+  weeklyAutoBoost: boolean;
   paneCount: 1 | 2 | 4; // Replaces dualPane logic
   dualPane: boolean; // Keep for backward compat temporarily
   clipboard: { paths: string[]; type: "copy" | "cut" | null };
@@ -332,7 +341,7 @@ interface AppState {
   ) => void;
   setSearchQuery: (query: string) => void;
   setActiveView: (
-    view: "explorer" | "analyzer" | "apps" | "network" | "booster",
+    view: "explorer" | "analyzer" | "apps" | "booster" | "settings",
   ) => void;
   setInstalledApps: (apps: any[]) => void;
   setUwpApps: (apps: any[]) => void;
@@ -378,6 +387,10 @@ interface AppState {
     side: "left" | "right" | "bottomLeft" | "bottomRight",
   ) => void;
   toggleHidden: () => void;
+  setConfirmOnDelete: (val: boolean) => void;
+  setAutoRenameConflicts: (val: boolean) => void;
+  setAggressiveCleanup: (val: boolean) => void;
+  setWeeklyAutoBoost: (val: boolean) => void;
   toggleDualPane: () => void; // Will verify
   toggleQuadPane: () => void; // New
 
@@ -467,7 +480,11 @@ export const useStore = create<AppState>((set, get) => ({
   pinHash: lockState?.pinHash || null,
   pinSalt: lockState?.pinSalt || null,
   activeSide: "left",
-  showHidden: false,
+  showHidden: lastSession?.showHidden ?? false,
+  confirmOnDelete: lastSession?.confirmOnDelete ?? true,
+  autoRenameConflicts: lastSession?.autoRenameConflicts ?? false,
+  aggressiveCleanup: lastSession?.aggressiveCleanup ?? false,
+  weeklyAutoBoost: lastSession?.weeklyAutoBoost ?? false,
   dualPane: lastSession?.dualPane ?? true,
   paneCount: lastSession?.paneCount ?? 2,
   clipboard: { paths: [], type: null },
@@ -686,7 +703,37 @@ export const useStore = create<AppState>((set, get) => ({
 
   setActiveSide: (side) => set({ activeSide: side }),
 
-  toggleHidden: () => set((state: any) => ({ showHidden: !state.showHidden })),
+  toggleHidden: () =>
+    set((state: any) => {
+      const nextState = { ...state, showHidden: !state.showHidden };
+      persistLastSession(nextState);
+      return nextState;
+    }),
+
+  setConfirmOnDelete: (confirmOnDelete) =>
+    set((state: any) => {
+      const nextState = { ...state, confirmOnDelete };
+      persistLastSession(nextState);
+      return nextState;
+    }),
+  setAutoRenameConflicts: (autoRenameConflicts) =>
+    set((state: any) => {
+      const nextState = { ...state, autoRenameConflicts };
+      persistLastSession(nextState);
+      return nextState;
+    }),
+  setAggressiveCleanup: (aggressiveCleanup) =>
+    set((state: any) => {
+      const nextState = { ...state, aggressiveCleanup };
+      persistLastSession(nextState);
+      return nextState;
+    }),
+  setWeeklyAutoBoost: (weeklyAutoBoost) =>
+    set((state: any) => {
+      const nextState = { ...state, weeklyAutoBoost };
+      persistLastSession(nextState);
+      return nextState;
+    }),
 
   toggleDualPane: () =>
     set((state: any) => ({
