@@ -73,6 +73,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   moveItems: (sourcePaths: string[], destDir: string) =>
     ipcRenderer.invoke("move-items", sourcePaths, destDir),
   configureDiskCleanup: () => ipcRenderer.invoke("configure-disk-cleanup"),
+  deepSearch: (query: string, searchId: string) => ipcRenderer.invoke("deep-search", query, searchId),
+  pathDirname: (path: string) => ipcRenderer.invoke("path-dirname", path),
+  onDeepSearchUpdate: (callback: any) => {
+    const subscription = (_event: any, value: any) => callback(value);
+    ipcRenderer.on("deep-search-update", subscription);
+    return () => ipcRenderer.removeListener("deep-search-update", subscription);
+  },
+  showContextMenu: () => ipcRenderer.send("show-context-menu"),
+  editAction: (action: string) => ipcRenderer.send("edit-action", action),
   onMainMessage: (callback: any) =>
     ipcRenderer.on("main-process-message", (_event, value) => callback(value)),
 });

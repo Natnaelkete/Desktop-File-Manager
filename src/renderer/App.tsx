@@ -20,9 +20,15 @@ import {
   Columns,
   Grid,
   Briefcase,
+  File,
+  Folder as FolderIcon,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 import { clsx } from "clsx";
 import hotkeys from "hotkeys-js";
+import { FixedSizeList as List } from "react-window";
+import { AutoSizer } from "react-virtualized-auto-sizer";
 
 const App: React.FC = () => {
   console.log("App Component Rendering");
@@ -43,7 +49,16 @@ const App: React.FC = () => {
     toggleQuadPane,
     paneCount,
     clearUnlockedPaths,
+    searchResults,
+    setSearchResults,
+    appendSearchResults,
+    isSearching,
+    setIsSearching,
+    navigateTo,
+    leftTabs,
+    rightTabs,
   } = useStore();
+  const currentSearchIdRef = useRef<string | null>(null);
   const [analyzerPath, setAnalyzerPath] = useState<string | null>(null);
   const [viewerData, setViewerData] = useState<{
     items: any[];
@@ -100,6 +115,88 @@ const App: React.FC = () => {
     window.removeEventListener("pointermove", handleGridPointerMove);
     window.removeEventListener("pointerup", handleGridPointerUp);
   }, [handleGridPointerMove]);
+
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const searchDropdownRef = useRef<HTMLDivElement>(null);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [visibleLimit, setVisibleLimit] = useState(50);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, clientHeight, scrollHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 100) {
+      setVisibleLimit(prev => Math.min(prev + 50, searchResults.length));
+    }
+  };
+
+  // Deep search logic
+  useEffect(() => {
+    // Listen for streaming updates
+    const removeListener = (window as any).electronAPI.onDeepSearchUpdate((data: any) => {
+      if (data.searchId !== currentSearchIdRef.current) return;
+      
+      if (data.results && data.results.length > 0) {
+        appendSearchResults(data.results);
+      }
+      if (data.isComplete) {
+        setIsSearching(false);
+      }
+    });
+
+    return () => {
+      if (typeof removeListener === "function") removeListener();
+    };
+  }, [appendSearchResults, setIsSearching]);
+
+  useEffect(() => {
+    if (!searchQuery || searchQuery.trim().length < 2) {
+      setIsSearching(false);
+      currentSearchIdRef.current = null;
+      setVisibleLimit(50);
+      return;
+    }
+
+    setShowSearchDropdown(true);
+    const timer = setTimeout(async () => {
+      const searchId = Date.now().toString();
+      currentSearchIdRef.current = searchId;
+      
+      setIsSearching(true);
+      setSearchResults([]); // Clear old results
+      setVisibleLimit(50); // Reset limit
+      setSelectedIndex(-1);
+      
+      // Trigger search - results will come via onDeepSearchUpdate
+      await (window as any).electronAPI.deepSearch(
+        searchQuery, 
+        searchId
+      );
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, setSearchResults, setIsSearching]);
+
+  // Click outside search
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (searchDropdownRef.current && !searchDropdownRef.current.contains(e.target as Node) && 
+          !(e.target instanceof HTMLInputElement)) {
+        setShowSearchDropdown(false);
+      }
+    };
+    window.addEventListener("mousedown", handleClick);
+    return () => window.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const handleSearchResultClick = async (result: any) => {
+    const activeTabId = activeSide === "left" ? activeLeftTabId : activeRightTabId;
+    // For navigation, we usually want to go to the parent folder and select the file
+    // but the navigateTo currently takes a folder path.
+    // If it's a directory, go there. If it's a file, go to its parent.
+    const targetPath = result.isDirectory ? result.path : await (window as any).electronAPI.pathDirname(result.path);
+    navigateTo(activeSide, activeTabId, targetPath, result.path);
+    setShowSearchDropdown(false);
+    setSearchQuery("");
+  };
 
   useEffect(() => {
     // Keyboard navigation
@@ -241,11 +338,92 @@ const App: React.FC = () => {
               />
               <input
                 type="text"
-                placeholder="Search files, folders..."
+                placeholder="Deep search files"
                 value={searchQuery}
+                onFocus={() => setShowSearchDropdown(true)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") {
+                    setSelectedIndex(prev => Math.min(prev + 1, searchResults.length - 1));
+                  } else if (e.key === "ArrowUp") {
+                    setSelectedIndex(prev => Math.max(prev - 1, 0));
+                  } else if (e.key === "Enter" && selectedIndex >= 0) {
+                    handleSearchResultClick(searchResults[selectedIndex]);
+                  } else if (e.key === "Escape") {
+                    setShowSearchDropdown(false);
+                  }
+                }}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none"
               />
+
+              <AnimatePresence>
+                {showSearchDropdown && (searchQuery.length >= 2) && (
+                  <motion.div
+                    ref={searchDropdownRef}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden z-[100]"
+                  >
+                    <div className="h-[400px]">
+                      {isSearching && searchResults.length === 0 ? (
+                        <div className="flex items-center justify-center h-full gap-3 text-slate-500">
+                          <Loader2 className="animate-spin" size={18} />
+                          <span className="text-sm font-medium">Searching deep...</span>
+                        </div>
+                      ) : searchResults.length > 0 ? (
+                        <div 
+                          className="h-[400px] overflow-y-auto scrollbar-hide"
+                          onScroll={handleScroll}
+                        >
+                          {searchResults.slice(0, visibleLimit).map((result, index) => (
+                            <div
+                              key={result.path}
+                              onClick={() => handleSearchResultClick(result)}
+                              onMouseEnter={() => setSelectedIndex(index)}
+                              className={clsx(
+                                "px-3 py-2 flex items-center gap-4 cursor-pointer group border-b border-slate-100 dark:border-slate-800 last:border-0",
+                                selectedIndex === index ? "bg-primary-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                              )}
+                            >
+                              <div className="flex items-center gap-3 w-full">
+                                {result.isDirectory ? (
+                                  <FolderIcon size={18} className={selectedIndex === index ? "text-white" : "text-amber-500"} />
+                                ) : (
+                                  <File size={18} className={selectedIndex === index ? "text-white" : "text-slate-400"} />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-semibold truncate">{result.name}</div>
+                                  <div className={clsx(
+                                    "text-[10px] truncate opacity-60",
+                                    selectedIndex === index ? "text-white" : "text-slate-500"
+                                  )}>
+                                    {result.path}
+                                  </div>
+                                </div>
+                                <ChevronRight size={14} className="opacity-0 group-hover:opacity-100" />
+                              </div>
+                            </div>
+                          ))}
+                          {visibleLimit < searchResults.length && (
+                             <div className="py-2 text-center text-xs text-slate-400">Loading more...</div>
+                          )}
+                        </div>
+                      ) : !isSearching ? (
+                        <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-500">
+                          <div className="text-sm">No results found for "{searchQuery}"</div>
+                          <div className="text-[10px] mt-1">Deep search covers Desktop, Documents and Drives.</div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-full gap-3 text-slate-500">
+                          <Loader2 className="animate-spin" size={18} />
+                          <span className="text-sm font-medium">Found {searchResults.length} results...</span>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 

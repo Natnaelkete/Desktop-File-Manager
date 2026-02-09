@@ -175,6 +175,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     clearUnlockedPaths,
     isPathLocked,
     setPinCredentials,
+    clearPendingSelection,
   } = useStore();
 
   const pinHash = useStore((state: any) => state.pinHash);
@@ -318,7 +319,29 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     if (tab.files.length === 0 || tab.loading) {
       refresh(tab.path);
     }
-  }, [tab?.id, tab?.path, tab?.loading, tab?.files?.length]);
+  }, [tab?.id, tab?.path, tab?.loading, tab?.files?.length, refresh]);
+
+  // Handle pending selection after search navigation
+  useEffect(() => {
+    if (tab?.pendingSelection && tab.files.length > 0 && !tab.loading) {
+      const pending = tab.pendingSelection;
+      const exists = tab.files.find((f: FileItem) => f.path === pending);
+      if (exists) {
+        setSelection(side, [pending]);
+        setScrollTarget(pending);
+        clearPendingSelection(side, tab.id);
+      }
+    }
+  }, [
+    tab?.id,
+    tab?.pendingSelection,
+    tab?.files,
+    tab?.loading,
+    side,
+    setSelection,
+    setScrollTarget,
+    clearPendingSelection,
+  ]);
 
   const loadOpenWithApps = useCallback(async (filePath: string) => {
     if (!filePath) return;
@@ -1023,7 +1046,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
       {/* Breadcrumbs */}
       <div className="h-10 border-b border-slate-200 dark:border-slate-800 flex items-center px-4 gap-2 bg-slate-50/50 dark:bg-slate-900/50 flex-shrink-0">
         <div className="flex-1 flex items-center gap-1 text-xs text-slate-500 overflow-hidden whitespace-nowrap">
-          {tab.path
+          {(typeof tab.path === "string" ? tab.path : "")
             .split("\\")
             .filter(Boolean)
             .map((part: string, i: number, arr: string[]) => (

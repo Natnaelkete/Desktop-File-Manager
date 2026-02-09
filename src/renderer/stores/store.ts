@@ -18,6 +18,7 @@ export interface TabState {
   historyIndex: number;
   files: FileItem[];
   loading: boolean;
+  pendingSelection?: string | null;
 }
 
 export interface WorkspaceTask {
@@ -287,6 +288,8 @@ interface AppState {
   bottomRightSelection: string[];
 
   searchQuery: string;
+  searchResults: any[];
+  isSearching: boolean;
   activeView: "explorer" | "analyzer" | "apps" | "booster" | "settings";
   activeSide: "left" | "right" | "bottomLeft" | "bottomRight";
   showHidden: boolean;
@@ -340,6 +343,9 @@ interface AppState {
     selection: string[],
   ) => void;
   setSearchQuery: (query: string) => void;
+  setSearchResults: (results: any[]) => void;
+  appendSearchResults: (results: any[]) => void;
+  setIsSearching: (isSearching: boolean) => void;
   setActiveView: (
     view: "explorer" | "analyzer" | "apps" | "booster" | "settings",
   ) => void;
@@ -374,6 +380,11 @@ interface AppState {
     side: "left" | "right" | "bottomLeft" | "bottomRight",
     id: string,
     path: string,
+    pendingSelection?: string,
+  ) => void;
+  clearPendingSelection: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    id: string,
   ) => void;
   goBack: (
     side: "left" | "right" | "bottomLeft" | "bottomRight",
@@ -386,6 +397,7 @@ interface AppState {
   setActiveSide: (
     side: "left" | "right" | "bottomLeft" | "bottomRight",
   ) => void;
+
   toggleHidden: () => void;
   setConfirmOnDelete: (val: boolean) => void;
   setAutoRenameConflicts: (val: boolean) => void;
@@ -433,14 +445,18 @@ const initTabs = (
   fallbackId: string,
 ) =>
   tabs && tabs.length > 0
-    ? tabs.map((t) => ({
-        id: t.id,
-        path: t.path,
-        history: t.history?.length ? t.history : [t.path],
-        historyIndex: typeof t.historyIndex === "number" ? t.historyIndex : 0,
-        files: [],
-        loading: true,
-      }))
+    ? tabs.map((t) => {
+        const pathStr = typeof t.path === "string" ? t.path : "C:\\";
+        return {
+          id: t.id,
+          path: pathStr,
+          history: Array.isArray(t.history) ? t.history.filter(h => typeof h === "string") : [pathStr],
+          historyIndex: typeof t.historyIndex === "number" ? t.historyIndex : 0,
+          files: [],
+          loading: true,
+          pendingSelection: null,
+        };
+      })
     : [
         {
           id: fallbackId,
@@ -449,6 +465,7 @@ const initTabs = (
           historyIndex: 0,
           files: [],
           loading: false,
+          pendingSelection: null,
         },
       ];
 
@@ -471,6 +488,8 @@ export const useStore = create<AppState>((set, get) => ({
   bottomLeftSelection: [],
   bottomRightSelection: [],
   searchQuery: "",
+  searchResults: [],
+  isSearching: false,
   activeView: "explorer",
   installedApps: [],
   uwpApps: [],
@@ -511,6 +530,10 @@ export const useStore = create<AppState>((set, get) => ({
     set({ [selectionKey]: selection } as any);
   },
   setSearchQuery: (query) => set({ searchQuery: query }),
+  setSearchResults: (results) => set({ searchResults: results }),
+  appendSearchResults: (results) =>
+    set((state) => ({ searchResults: [...state.searchResults, ...results] })),
+  setIsSearching: (isSearching) => set({ isSearching }),
   setActiveView: (view) => set({ activeView: view }),
   setInstalledApps: (installedApps) => set({ installedApps }),
   setUwpApps: (uwpApps) => set({ uwpApps }),
@@ -579,6 +602,7 @@ export const useStore = create<AppState>((set, get) => ({
         historyIndex: 0,
         files: [],
         loading: false,
+        pendingSelection: null,
       };
       const nextState = {
         ...state,
@@ -618,7 +642,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
   },
 
-  updateTabFiles: (side, id, files) =>
+  updateTabFiles: (side, id, files: FileItem[]) =>
     set((state) => {
       const { tabsKey } = getSideKeys(side);
       return {
@@ -628,13 +652,9 @@ export const useStore = create<AppState>((set, get) => ({
       } as any;
     }),
 
-  navigateTo: (side, id, path) =>
+  navigateTo: (side, id, path, pendingSelection?: string) =>
     set((state) => {
       const { tabsKey } = getSideKeys(side);
-
-      const targetTab = state[tabsKey].find((t) => t.id === id);
-      // If already on this path, do nothing
-      if (targetTab && targetTab.path === path) return {} as any;
 
       const nextTabs = state[tabsKey].map((t) => {
         if (t.id === id) {
@@ -647,6 +667,7 @@ export const useStore = create<AppState>((set, get) => ({
             historyIndex: newHistory.length - 1,
             loading: true,
             files: [],
+            pendingSelection: pendingSelection || null,
           };
         }
         return t;
@@ -657,7 +678,16 @@ export const useStore = create<AppState>((set, get) => ({
       return nextState as any;
     }),
 
-  goBack: (side, id) =>
+  clearPendingSelection: (side, id: string) =>
+    set((state) => {
+      const { tabsKey } = getSideKeys(side);
+      const nextTabs = state[tabsKey].map((t) =>
+        t.id === id ? { ...t, pendingSelection: null } : t,
+      );
+      return { [tabsKey]: nextTabs } as any;
+    }),
+
+  goBack: (side, id: string) =>
     set((state) => {
       const { tabsKey } = getSideKeys(side);
       const nextTabs = state[tabsKey].map((t) => {
@@ -679,7 +709,7 @@ export const useStore = create<AppState>((set, get) => ({
       return nextState as any;
     }),
 
-  goForward: (side, id) =>
+  goForward: (side, id: string) =>
     set((state) => {
       const { tabsKey } = getSideKeys(side);
       const nextTabs = state[tabsKey].map((t) => {

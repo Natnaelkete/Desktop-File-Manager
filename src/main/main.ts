@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, protocol, net } from "electron";
+import { app, BrowserWindow, ipcMain, shell, protocol, Menu, net } from "electron";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import fs_native from "node:fs";
 import path from "node:path";
@@ -835,6 +835,68 @@ app.on("activate", () => {
 });
 
 app.whenReady().then(() => {
+  // Create default menu for shortcuts (Copy, Paste, etc.)
+  const template: any[] = [
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo", accelerator: "CmdOrCtrl+Z" },
+        { role: "redo", accelerator: "CmdOrCtrl+Y" },
+        { type: "separator" },
+        { role: "cut", accelerator: "CmdOrCtrl+X" },
+        { role: "copy", accelerator: "CmdOrCtrl+C" },
+        { role: "paste", accelerator: "CmdOrCtrl+V" },
+        { role: "delete" },
+        { type: "separator" },
+        { role: "selectAll", accelerator: "CmdOrCtrl+A" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+
+  ipcMain.on("show-context-menu", (event) => {
+    const template = [
+      { role: "undo" },
+      { role: "redo" },
+      { type: "separator" },
+      { role: "cut" },
+      { role: "copy" },
+      { role: "paste" },
+      { role: "selectAll" },
+    ];
+    const menu = Menu.buildFromTemplate(template as any);
+    menu.popup({ window: BrowserWindow.fromWebContents(event.sender) || undefined });
+  });
+
+  ipcMain.on("edit-action", (event, action) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    
+    switch (action) {
+      case "undo": win.webContents.undo(); break;
+      case "redo": win.webContents.redo(); break;
+      case "cut": win.webContents.cut(); break;
+      case "copy": win.webContents.copy(); break;
+      case "paste": win.webContents.paste(); break;
+      case "selectAll": win.webContents.selectAll(); break;
+    }
+  });
+
   // Register local-resource protocol (Modern API)
   protocol.handle("local-resource", async (request) => {
     try {
@@ -1869,6 +1931,10 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle("path-dirname", async (_event, p: string) => {
+  return path.dirname(p);
+});
+
 ipcMain.handle(
   "batch-rename",
   async (_event, paths: string[], pattern: string, replacement: string) => {
@@ -1888,3 +1954,91 @@ ipcMain.handle(
     }
   },
 );
+ipcMain.handle("deep-search", async (_event, query: string, searchId: string) => {
+  if (!query || query.trim().length < 2) return;
+  const normalizedQuery = query.toLowerCase();
+  let results: any[] = [];
+  const maxResults = 1000;
+  const timeout = 15000;
+  const startTime = Date.now();
+  const chunkSize = 20;
+
+  const skipFolders = new Set([
+    "node_modules",
+    ".git",
+    "$recycle.bin",
+    "system volume information",
+    "perflogs",
+    "config.msi",
+  ]);
+
+  const sendBatch = () => {
+    if (results.length > 0) {
+      _event.sender.send("deep-search-update", { results, isComplete: false, searchId });
+      results = [];
+    }
+  };
+
+  const searchDir = async (dir: string, depth = 0) => {
+    if (Date.now() - startTime > timeout || depth > 8) return;
+
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (Date.now() - startTime > timeout) break;
+
+        const fullPath = path.join(dir, entry.name);
+        const nameLower = entry.name.toLowerCase();
+
+        if (nameLower.includes(normalizedQuery)) {
+          const stats = await fs.stat(fullPath).catch(() => null);
+          if (stats) {
+            results.push({
+              name: entry.name,
+              path: fullPath,
+              isDirectory: entry.isDirectory(),
+              size: stats.size,
+              modifiedAt: stats.mtimeMs,
+            });
+
+            if (results.length >= chunkSize) {
+              sendBatch();
+            }
+          }
+        }
+
+        if (entry.isDirectory() && !skipFolders.has(nameLower) && !entry.name.startsWith(".")) {
+          await searchDir(fullPath, depth + 1);
+        }
+      }
+    } catch (e) {
+      // Ignore permission errors
+    }
+  };
+
+  // Detect all drives
+  let drives: string[] = ["C:\\"];
+  try {
+    if (process.platform === "win32") {
+      const { stdout } = await execAsync('powershell "Get-PSDrive -PSProvider FileSystem | Select-Object Name"');
+      const lines = stdout.trim().split("\n").slice(2);
+      drives = lines.map(l => `${l.trim()}:\\`).filter(d => d.length >= 3);
+    }
+  } catch (e) {}
+
+  // Search all drives in parallel
+  await Promise.all(drives.map(async (drive) => {
+    if (drive.toLowerCase() === "c:\\") {
+      const homeDir = os.homedir();
+      await searchDir(path.join(homeDir, "Desktop"));
+      await searchDir(path.join(homeDir, "Documents"));
+      await searchDir(path.join(drive, "Users"), 0);
+    } else {
+      await searchDir(drive, 0);
+    }
+  }));
+
+  // Send final batch and completion signal
+  sendBatch();
+  _event.sender.send("deep-search-update", { results: [], isComplete: true, searchId });
+});
