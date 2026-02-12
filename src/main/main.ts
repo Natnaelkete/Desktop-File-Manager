@@ -7,6 +7,7 @@ import {
   Menu,
   net,
 } from "electron";
+import { autoUpdater } from "electron-updater";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import fs_native from "node:fs";
 import path from "node:path";
@@ -879,6 +880,40 @@ function createWindow() {
       color: "#0f172a",
       symbolColor: "#f8fafc",
     },
+  });
+
+  // Auto Updater Events
+  autoUpdater.logger = console;
+  autoUpdater.autoDownload = false;
+
+  autoUpdater.on("checking-for-update", () => {
+    win?.webContents.send("update-status", { status: "checking" });
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    win?.webContents.send("update-status", { status: "available", info });
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
+    win?.webContents.send("update-status", { status: "not-available", info });
+  });
+
+  autoUpdater.on("error", (err) => {
+    win?.webContents.send("update-status", {
+      status: "error",
+      error: err.message,
+    });
+  });
+
+  autoUpdater.on("download-progress", (progressObj) => {
+    win?.webContents.send("update-status", {
+      status: "downloading",
+      progress: progressObj,
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    win?.webContents.send("update-status", { status: "downloaded", info });
   });
 
   win.once("ready-to-show", () => {

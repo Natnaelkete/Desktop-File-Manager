@@ -89,6 +89,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   editAction: (action: string) => ipcRenderer.send("edit-action", action),
   onMainMessage: (callback: any) =>
     ipcRenderer.on("main-process-message", (_event, value) => callback(value)),
+  
+  // Auto Updater
+  getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+  downloadUpdate: () => ipcRenderer.invoke("download-update"),
+  quitAndInstall: () => ipcRenderer.invoke("quit-and-install"),
+  onUpdateStatus: (callback: (status: any) => void) => {
+    const subscription = (_event: any, value: any) => callback(value);
+    ipcRenderer.on("update-status", subscription);
+    return () => ipcRenderer.removeListener("update-status", subscription);
+  },
 });
 
 console.log("Preload script loaded with advanced stats support");

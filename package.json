@@ -16,16 +16,17 @@
     "adm-zip": "^0.5.10",
     "clsx": "^2.0.0",
     "date-fns": "^4.1.0",
+    "electron-updater": "^6.7.3",
     "framer-motion": "^10.16.4",
     "hotkeys-js": "^3.13.15",
     "lucide-react": "^0.292.0",
+    "pdf-lib": "^1.17.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-virtualized-auto-sizer": "^2.0.2",
     "react-window": "^1.8.11",
     "recharts": "^3.6.0",
     "regedit": "^5.1.4",
-    "pdf-lib": "^1.17.1",
     "sharp": "^0.32.6",
     "tailwind-merge": "^2.0.0",
     "zustand": "^4.4.6"
@@ -47,7 +48,18 @@
     "vite-plugin-electron": "^0.15.4",
     "vite-plugin-electron-renderer": "^0.14.5"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Natnaelkete/Desktop-File-Manager"
+  },
   "build": {
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Natnaelkete",
+        "repo": "Desktop-File-Manager"
+      }
+    ],
     "appId": "com.antigravity.filemanager",
     "productName": "ES File Manager",
     "win": {
