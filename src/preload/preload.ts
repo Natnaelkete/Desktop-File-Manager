@@ -2,7 +2,12 @@ import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   listDir: (path: string) => ipcRenderer.invoke("list-dir", path),
-  getDrives: () => ipcRenderer.invoke("get-drives"),
+  getDrives: (forceRefresh?: boolean) => ipcRenderer.invoke("get-drives", forceRefresh),
+  onDrivesChanged: (callback: () => void) => {
+    const subscription = (_event: any) => callback();
+    ipcRenderer.on("drives-changed", subscription);
+    return () => ipcRenderer.removeListener("drives-changed", subscription);
+  },
   deleteItems: (paths: string[]) => ipcRenderer.invoke("delete-items", paths),
   deleteItemsPermanently: (paths: string[]) =>
     ipcRenderer.invoke("delete-items-permanently", paths),

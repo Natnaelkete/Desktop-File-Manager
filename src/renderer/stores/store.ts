@@ -9,6 +9,7 @@ export interface FileItem {
   createdAt: number;
   error?: boolean;
   parentPath?: string;
+  sizeCalculated?: boolean;
 }
 
 export interface TabState {
@@ -145,6 +146,28 @@ const persistLastSession = (state: AppState) => {
       autoRenameConflicts: state.autoRenameConflicts,
       aggressiveCleanup: state.aggressiveCleanup,
       weeklyAutoBoost: state.weeklyAutoBoost,
+
+      // View Modes
+      leftViewMode: state.leftViewMode,
+      rightViewMode: state.rightViewMode,
+      bottomLeftViewMode: state.bottomLeftViewMode,
+      bottomRightViewMode: state.bottomRightViewMode,
+
+      // Grid Sizes
+      leftGridSize: state.leftGridSize,
+      rightGridSize: state.rightGridSize,
+      bottomLeftGridSize: state.bottomLeftGridSize,
+      bottomRightGridSize: state.bottomRightGridSize,
+
+      // Sort Settings
+      leftSortBy: state.leftSortBy,
+      rightSortBy: state.rightSortBy,
+      bottomLeftSortBy: state.bottomLeftSortBy,
+      bottomRightSortBy: state.bottomRightSortBy,
+      leftSortOrder: state.leftSortOrder,
+      rightSortOrder: state.rightSortOrder,
+      bottomLeftSortOrder: state.bottomLeftSortOrder,
+      bottomRightSortOrder: state.bottomRightSortOrder,
     };
     window.localStorage.setItem(sessionKey, JSON.stringify(payload));
   } catch {
@@ -376,6 +399,12 @@ interface AppState {
     id: string,
     files: FileItem[],
   ) => void;
+  updateFileSize: (
+    side: "left" | "right" | "bottomLeft" | "bottomRight",
+    tabId: string,
+    path: string,
+    size: number,
+  ) => void;
   navigateTo: (
     side: "left" | "right" | "bottomLeft" | "bottomRight",
     id: string,
@@ -450,7 +479,9 @@ const initTabs = (
         return {
           id: t.id,
           path: pathStr,
-          history: Array.isArray(t.history) ? t.history.filter(h => typeof h === "string") : [pathStr],
+          history: Array.isArray(t.history)
+            ? t.history.filter((h) => typeof h === "string")
+            : [pathStr],
           historyIndex: typeof t.historyIndex === "number" ? t.historyIndex : 0,
           files: [],
           loading: true,
@@ -479,10 +510,10 @@ export const useStore = create<AppState>((set, get) => ({
   activeBottomLeftTabId: lastSession?.activeBottomLeftTabId || "bl1",
   activeBottomRightTabId: lastSession?.activeBottomRightTabId || "br1",
   theme: "dark",
-  leftViewMode: "grid",
-  rightViewMode: "grid",
-  bottomLeftViewMode: "grid",
-  bottomRightViewMode: "grid",
+  leftViewMode: lastSession?.leftViewMode || "grid",
+  rightViewMode: lastSession?.rightViewMode || "grid",
+  bottomLeftViewMode: lastSession?.bottomLeftViewMode || "grid",
+  bottomRightViewMode: lastSession?.bottomRightViewMode || "grid",
   leftSelection: [],
   rightSelection: [],
   bottomLeftSelection: [],
@@ -509,22 +540,32 @@ export const useStore = create<AppState>((set, get) => ({
   clipboard: { paths: [], type: null },
   workspaces: loadWorkspaces(),
   activeWorkspaceId: null,
-  leftGridSize: "medium",
-  rightGridSize: "medium",
-  bottomLeftGridSize: "medium",
-  bottomRightGridSize: "medium",
-  leftSortBy: "name",
-  rightSortBy: "name",
-  bottomLeftSortBy: "name",
-  bottomRightSortBy: "name",
-  leftSortOrder: "asc",
-  rightSortOrder: "asc",
-  bottomLeftSortOrder: "asc",
-  bottomRightSortOrder: "asc",
+  leftGridSize: lastSession?.leftGridSize || "medium",
+  rightGridSize: lastSession?.rightGridSize || "medium",
+  bottomLeftGridSize: lastSession?.bottomLeftGridSize || "medium",
+  bottomRightGridSize: lastSession?.bottomRightGridSize || "medium",
+  leftSortBy: lastSession?.leftSortBy || "name",
+  rightSortBy: lastSession?.rightSortBy || "name",
+  bottomLeftSortBy: lastSession?.bottomLeftSortBy || "name",
+  bottomRightSortBy: lastSession?.bottomRightSortBy || "name",
+  leftSortOrder: lastSession?.leftSortOrder || "asc",
+  rightSortOrder: lastSession?.rightSortOrder || "asc",
+  bottomLeftSortOrder: lastSession?.bottomLeftSortOrder || "asc",
+  bottomRightSortOrder: lastSession?.bottomRightSortOrder || "asc",
 
   setTheme: (theme) => set({ theme }),
-  setLeftViewMode: (mode) => set({ leftViewMode: mode }),
-  setRightViewMode: (mode) => set({ rightViewMode: mode }),
+  setLeftViewMode: (mode) =>
+    set((state) => {
+      const nextState = { ...state, leftViewMode: mode } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
+    }),
+  setRightViewMode: (mode) =>
+    set((state) => {
+      const nextState = { ...state, rightViewMode: mode } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
+    }),
   setSelection: (side, selection) => {
     const { selectionKey } = getSideKeys(side);
     set({ [selectionKey]: selection } as any);
@@ -652,6 +693,22 @@ export const useStore = create<AppState>((set, get) => ({
       } as any;
     }),
 
+  updateFileSize: (side, tabId, path, size) =>
+    set((state) => {
+      const { tabsKey } = getSideKeys(side);
+      return {
+        [tabsKey]: state[tabsKey].map((t) => {
+          if (t.id !== tabId) return t;
+          return {
+            ...t,
+            files: t.files.map((f) =>
+              f.path === path ? { ...f, size, sizeCalculated: true } : f,
+            ),
+          };
+        }),
+      } as any;
+    }),
+
   navigateTo: (side, id, path, pendingSelection?: string) =>
     set((state) => {
       const { tabsKey } = getSideKeys(side);
@@ -766,33 +823,59 @@ export const useStore = create<AppState>((set, get) => ({
     }),
 
   toggleDualPane: () =>
-    set((state: any) => ({
-      dualPane: !state.dualPane,
-      paneCount: state.dualPane ? 1 : 2,
-    })),
+    set((state: any) => {
+      const nextState = {
+        ...state,
+        dualPane: !state.dualPane,
+        paneCount: state.dualPane ? 1 : 2,
+      };
+      persistLastSession(nextState);
+      return nextState;
+    }),
 
   toggleQuadPane: () =>
-    set((state: any) => ({
-      paneCount: state.paneCount === 4 ? 2 : 4,
-      dualPane: true,
-    })),
+    set((state: any) => {
+      const nextState = {
+        ...state,
+        paneCount: state.paneCount === 4 ? 2 : 4,
+        dualPane: true,
+      };
+      persistLastSession(nextState);
+      return nextState;
+    }),
 
   setViewMode: (side, mode) => {
     const { viewModeKey } = getSideKeys(side);
-    set({ [viewModeKey]: mode } as any);
+    set((state) => {
+      const nextState = { ...state, [viewModeKey]: mode } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
+    });
   },
 
   setGridSize: (side, size) => {
     const { gridSizeKey } = getSideKeys(side);
-    set({ [gridSizeKey]: size } as any);
+    set((state) => {
+      const nextState = { ...state, [gridSizeKey]: size } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
+    });
   },
   setSortBy: (side, sortBy) => {
     const { sortByKey } = getSideKeys(side);
-    set({ [sortByKey]: sortBy } as any);
+    set((state) => {
+      const nextState = { ...state, [sortByKey]: sortBy } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
+    });
   },
   setSortOrder: (side, order) => {
     const { sortOrderKey } = getSideKeys(side);
-    set({ [sortOrderKey]: order } as any);
+    set((state) => {
+      const nextState = { ...state, [sortOrderKey]: order } as AppState;
+      persistLastSession(nextState);
+      return nextState as any;
+    });
   },
 
   moveTab: (fromSide, toSide, tabId) =>

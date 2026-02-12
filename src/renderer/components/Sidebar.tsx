@@ -27,6 +27,7 @@ interface Drive {
   used: number;
   free: number;
   total: number;
+  type?: string;
 }
 
 interface SidebarProps {
@@ -56,15 +57,26 @@ const Sidebar: React.FC<SidebarProps> = ({
   } = useStore();
 
   useEffect(() => {
-    const init = async () => {
-      const [d, paths] = await Promise.all([
-        (window as any).electronAPI.getDrives(),
-        (window as any).electronAPI.getUserPaths(),
-      ]);
+    const loadDrives = async () => {
+      const d = await (window as any).electronAPI.getDrives(true); // Force refresh initially to ensure fresh data
       setDrives(d);
+    };
+
+    const init = async () => {
+      await loadDrives();
+      const paths = await (window as any).electronAPI.getUserPaths();
       setUserPaths(paths);
     };
     init();
+
+    // Listen for drive changes
+    const removeListener = (window as any).electronAPI.onDrivesChanged?.(() => {
+      loadDrives();
+    });
+
+    return () => {
+      removeListener?.();
+    };
   }, []);
 
   const quickAccess = userPaths
@@ -169,17 +181,25 @@ const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 title={collapsed ? drive.name : undefined}
               >
-                <HardDrive size={18} className="text-primary-500" />
+                {drive.type === "MTP" ? (
+                  <Smartphone size={18} className="text-primary-500" />
+                ) : (
+                  <HardDrive size={18} className="text-primary-500" />
+                )}
                 <div className={clsx("flex-1 min-w-0", collapsed && "hidden")}>
                   <div className="text-sm font-medium truncate">
                     {drive.name}
                   </div>
-                  <div className="w-full bg-slate-200 dark:bg-slate-700 h-1 rounded-full mt-1 overflow-hidden">
-                    <div
-                      className="bg-primary-500 h-full"
-                      style={{ width: `${(drive.used / drive.total) * 100}%` }}
-                    />
-                  </div>
+                  {drive.total > 0 && (
+                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-1 rounded-full mt-1 overflow-hidden">
+                      <div
+                        className="bg-primary-500 h-full"
+                        style={{
+                          width: `${(drive.used / drive.total) * 100}%`,
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={(e) => {

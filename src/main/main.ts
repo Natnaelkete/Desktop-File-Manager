@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, shell, protocol, Menu, net } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  protocol,
+  Menu,
+  net,
+} from "electron";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import fs_native from "node:fs";
 import path from "node:path";
@@ -24,8 +32,14 @@ if (app.isPackaged) {
   vbsPath = path.join(process.cwd(), "node_modules", "regedit", "vbs");
 }
 
-console.log(`Setting regedit VBS path to: ${vbsPath}`);
-regedit.setExternalVBSLocation(vbsPath);
+const initRegedit = () => {
+  try {
+    console.log(`Setting regedit VBS path to: ${vbsPath}`);
+    regedit.setExternalVBSLocation(vbsPath);
+  } catch (e) {
+    console.error("Failed to set regedit VBS path:", e);
+  }
+};
 
 // Promisify regedit list
 const regList = (keys: string[]) =>
@@ -164,15 +178,20 @@ const getOpenWithApps = async (filePath: string) => {
       `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}`,
       `HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}`,
       `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exe}`,
+      `HKCR\\Applications\\${exe}\\shell\\open\\command`,
     ];
 
     let appPath = "";
     try {
       const appResult = await regList(appKeys);
       for (const key of appKeys) {
-        const val = appResult?.[key]?.values?.[""]?.value as string;
-        if (val) {
-          appPath = val;
+        const result = appResult?.[key];
+        if (!result) continue;
+
+        // For "App Paths", the value is usually in the default value (empty string key)
+        const defaultVal = result.values?.[""]?.value as string;
+        if (defaultVal) {
+          appPath = defaultVal;
           break;
         }
       }
@@ -225,10 +244,41 @@ ipcMain.handle(
   async (_event, appPath: string, filePath: string) => {
     try {
       if (!appPath) return { error: "APP_NOT_FOUND" };
-      const child = spawn(appPath, [filePath], {
+
+      // Clean up app path - it might contain quotes or arguments like %1
+      let cleanAppPath = appPath.trim();
+
+      // If it starts with a quote, extract the part between quotes
+      if (cleanAppPath.startsWith('"')) {
+        const nextQuote = cleanAppPath.indexOf('"', 1);
+        if (nextQuote !== -1) {
+          cleanAppPath = cleanAppPath.substring(1, nextQuote);
+        }
+      } else {
+        // If no quotes, it might still have arguments.
+        // We assume the executable ends at .exe
+        const exeIndex = cleanAppPath.toLowerCase().indexOf(".exe");
+        if (exeIndex !== -1) {
+          cleanAppPath = cleanAppPath.substring(0, exeIndex + 4);
+        }
+      }
+
+      // Final validation of path existence
+      if (!fs_native.existsSync(cleanAppPath)) {
+        // Try one more thing: maybe it's just the exe name and we should search PATH
+        // but for App Paths it should be absolute.
+        return { error: `EXECUTABLE_NOT_FOUND: ${cleanAppPath}` };
+      }
+
+      const child = spawn(cleanAppPath, [filePath], {
         detached: true,
         stdio: "ignore",
       });
+
+      child.on("error", (err) => {
+        console.error("Failed to spawn app:", err);
+      });
+
       child.unref();
       return { success: true };
     } catch (error: any) {
@@ -285,94 +335,103 @@ ipcMain.handle("get-startup-items", async () => {
   }
 });
 
-ipcMain.handle("disable-startup-item", async (_event, item: any, dryRun = false) => {
-  try {
-    if (!item?.Name || !item?.Location) {
-      return { error: "INVALID_STARTUP_ITEM" };
-    }
-
-    if (dryRun) return { success: true };
-
-    const location = String(item.Location).trim();
-    const name = String(item.Name).trim();
-
-    // Validate inputs to prevent command injection
-    if (location.includes('"') || location.includes('&') || location.includes('|')) {
-      return { error: "INVALID_LOCATION_FORMAT" };
-    }
-    if (name.includes('"') || name.includes('&') || name.includes('|')) {
-      return { error: "INVALID_NAME_FORMAT" };
-    }
-
-    const isRunKey = /\\Microsoft\\Windows\\CurrentVersion\\Run/i.test(
-      location,
-    );
-    const isRunOnce = /\\Microsoft\\Windows\\CurrentVersion\\RunOnce/i.test(
-      location,
-    );
-
-    if (isRunKey || isRunOnce) {
-      // Escape quotes for registry command
-      const escapedLocation = location.replace(/"/g, '""');
-      const escapedName = name.replace(/"/g, '""');
-      await execAsync(`reg delete "${escapedLocation}" /v "${escapedName}" /f`);
-      return { success: true };
-    }
-
-    const isStartupFolder = /startup/i.test(location);
-    if (isStartupFolder) {
-      const cmdPathRaw = extractCommandPath(String(item.Command || ""));
-      const cmdPath = cmdPathRaw ? expandEnvVars(cmdPathRaw) : null;
-      const resolvedCmd = cmdPath
-        ? fs_native.existsSync(cmdPath)
-          ? cmdPath
-          : fs_native.existsSync(path.resolve(cmdPath))
-            ? path.resolve(cmdPath)
-            : null
-        : null;
-
-      const startupDirs = [
-        path.join(
-          process.env.APPDATA || "",
-          "Microsoft",
-          "Windows",
-          "Start Menu",
-          "Programs",
-          "Startup",
-        ),
-        path.join(
-          process.env.PROGRAMDATA || "C:\\ProgramData",
-          "Microsoft",
-          "Windows",
-          "Start Menu",
-          "Programs",
-          "StartUp",
-        ),
-      ].filter((p) => p && p.length > 0);
-
-      const candidates = [] as string[];
-      if (resolvedCmd) candidates.push(resolvedCmd);
-      const name = String(item.Name || "").trim();
-      if (name) {
-        const fileName = name.toLowerCase().endsWith(".lnk")
-          ? name
-          : `${name}.lnk`;
-        for (const dir of startupDirs) {
-          candidates.push(path.join(dir, fileName));
-        }
+ipcMain.handle(
+  "disable-startup-item",
+  async (_event, item: any, dryRun = false) => {
+    try {
+      if (!item?.Name || !item?.Location) {
+        return { error: "INVALID_STARTUP_ITEM" };
       }
 
-      const target = candidates.find((p) => fs_native.existsSync(p)) || null;
-      if (!target) return { error: "STARTUP_PATH_NOT_FOUND" };
-      await fs.rename(target, `${target}.disabled`);
-      return { success: true };
-    }
+      if (dryRun) return { success: true };
 
-    return { error: "UNSUPPORTED_STARTUP_LOCATION" };
-  } catch (error: any) {
-    return { error: error.message };
-  }
-});
+      const location = String(item.Location).trim();
+      const name = String(item.Name).trim();
+
+      // Validate inputs to prevent command injection
+      if (
+        location.includes('"') ||
+        location.includes("&") ||
+        location.includes("|")
+      ) {
+        return { error: "INVALID_LOCATION_FORMAT" };
+      }
+      if (name.includes('"') || name.includes("&") || name.includes("|")) {
+        return { error: "INVALID_NAME_FORMAT" };
+      }
+
+      const isRunKey = /\\Microsoft\\Windows\\CurrentVersion\\Run/i.test(
+        location,
+      );
+      const isRunOnce = /\\Microsoft\\Windows\\CurrentVersion\\RunOnce/i.test(
+        location,
+      );
+
+      if (isRunKey || isRunOnce) {
+        // Escape quotes for registry command
+        const escapedLocation = location.replace(/"/g, '""');
+        const escapedName = name.replace(/"/g, '""');
+        await execAsync(
+          `reg delete "${escapedLocation}" /v "${escapedName}" /f`,
+        );
+        return { success: true };
+      }
+
+      const isStartupFolder = /startup/i.test(location);
+      if (isStartupFolder) {
+        const cmdPathRaw = extractCommandPath(String(item.Command || ""));
+        const cmdPath = cmdPathRaw ? expandEnvVars(cmdPathRaw) : null;
+        const resolvedCmd = cmdPath
+          ? fs_native.existsSync(cmdPath)
+            ? cmdPath
+            : fs_native.existsSync(path.resolve(cmdPath))
+              ? path.resolve(cmdPath)
+              : null
+          : null;
+
+        const startupDirs = [
+          path.join(
+            process.env.APPDATA || "",
+            "Microsoft",
+            "Windows",
+            "Start Menu",
+            "Programs",
+            "Startup",
+          ),
+          path.join(
+            process.env.PROGRAMDATA || "C:\\ProgramData",
+            "Microsoft",
+            "Windows",
+            "Start Menu",
+            "Programs",
+            "StartUp",
+          ),
+        ].filter((p) => p && p.length > 0);
+
+        const candidates = [] as string[];
+        if (resolvedCmd) candidates.push(resolvedCmd);
+        const name = String(item.Name || "").trim();
+        if (name) {
+          const fileName = name.toLowerCase().endsWith(".lnk")
+            ? name
+            : `${name}.lnk`;
+          for (const dir of startupDirs) {
+            candidates.push(path.join(dir, fileName));
+          }
+        }
+
+        const target = candidates.find((p) => fs_native.existsSync(p)) || null;
+        if (!target) return { error: "STARTUP_PATH_NOT_FOUND" };
+        await fs.rename(target, `${target}.disabled`);
+        return { success: true };
+      }
+
+      return { error: "UNSUPPORTED_STARTUP_LOCATION" };
+    } catch (error: any) {
+      return { error: error.message };
+    }
+  },
+);
 
 ipcMain.handle("get-process-list", async () => {
   try {
@@ -409,7 +468,7 @@ ipcMain.handle("kill-process", async (_event, pid: number, dryRun = false) => {
     if (!Number.isInteger(numericPid) || numericPid <= 0) {
       return { error: "INVALID_PID" };
     }
-    
+
     if (dryRun) return { success: true };
 
     // Use validated numeric PID
@@ -432,14 +491,14 @@ ipcMain.handle("clean-temp", async (_event, dryRun = false) => {
     const MAX_SAFE_SIZE = 100 * 1024 * 1024; // 100MB
 
     const targets: string[] = [];
-    
+
     // Filter files by age and size
     for (const entry of entries) {
       const fullPath = path.join(tempDir, entry.name);
       try {
         const stats = await fs.stat(fullPath);
         const age = now - stats.mtime.getTime();
-        
+
         // Only delete files older than 1 hour and smaller than 100MB
         if (age > ONE_HOUR && stats.size < MAX_SAFE_SIZE) {
           targets.push(fullPath);
@@ -450,7 +509,12 @@ ipcMain.handle("clean-temp", async (_event, dryRun = false) => {
     }
 
     if (dryRun) {
-      return { success: true, deletedCount: targets.length, failedCount: 0, failedItems: [] };
+      return {
+        success: true,
+        deletedCount: targets.length,
+        failedCount: 0,
+        failedItems: [],
+      };
     }
 
     const results = await Promise.allSettled(
@@ -507,9 +571,13 @@ ipcMain.handle("optimize-visual-effects", async () => {
   try {
     // Adjust visual effects for best performance
     // Disable menu animations
-    await execAsync('reg add "HKCU\\Control Panel\\Desktop" /v "UserPreferencesMask" /t REG_BINARY /d "9012038010000000" /f');
+    await execAsync(
+      'reg add "HKCU\\Control Panel\\Desktop" /v "UserPreferencesMask" /t REG_BINARY /d "9012038010000000" /f',
+    );
     // Disable window animations
-    await execAsync('reg add "HKCU\\Control Panel\\Desktop\\WindowMetrics" /v "MinAnimate" /t REG_SZ /d "0" /f');
+    await execAsync(
+      'reg add "HKCU\\Control Panel\\Desktop\\WindowMetrics" /v "MinAnimate" /t REG_SZ /d "0" /f',
+    );
     return { success: true };
   } catch (error: any) {
     return { error: error.message };
@@ -534,7 +602,7 @@ ipcMain.handle("optimize-services", async () => {
       "MapsBroker", // Downloaded Maps Manager
       "lfsvc", // Geolocation Service
     ];
-    
+
     for (const service of servicesToDisable) {
       // Check if service exists first to avoid errors
       try {
@@ -799,6 +867,8 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     frame: false,
+    show: false, // Don't show the window until it's ready, improves perceived startup
+    backgroundColor: "#0f172a", // Match app theme to avoid white flash
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
@@ -811,6 +881,17 @@ function createWindow() {
     },
   });
 
+  win.once("ready-to-show", () => {
+    if (win) {
+      win.show();
+      // After showing the window, perform non-critical initializations
+      initRegedit();
+      loadInstalledAppsCache().finally(() => {
+        warmInstalledAppsCache();
+      });
+    }
+  });
+
   if (isDev && process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL);
     win.webContents.openDevTools();
@@ -819,6 +900,49 @@ function createWindow() {
 
   const distDir = process.env.DIST || path.join(__dirname, "../dist");
   win.loadFile(path.join(distDir, "index.html"));
+
+  // Listen for device changes (USB insertion/removal)
+  // WM_DEVICECHANGE = 0x0219
+  // DBT_DEVICEARRIVAL = 0x8000
+  // DBT_DEVICEREMOVECOMPLETE = 0x8004
+  if (process.platform === "win32") {
+    win.hookWindowMessage(0x0219, (wParam, lParam) => {
+      // wParam is a Buffer in Electron for hookWindowMessage, we need to read it
+      // Actually, Electron docs say:
+      // "The callback is called with (wParam, lParam). The types of these parameters depend on the OS."
+      // On Windows, they are Integers? Or Buffers?
+      // Recent Electron versions might return Buffers.
+      // Let's check type safely.
+      let wValue = 0;
+      if (Buffer.isBuffer(wParam)) {
+        wValue = wParam.readUInt32LE(0); // Assuming 32-bit LE for message params
+      } else if (typeof wParam === "number") {
+        wValue = wParam;
+      }
+
+      if (wValue === 0x8004) {
+        // Device Removal: Immediate update
+        drivesCache = null;
+        win?.webContents.send("drives-changed");
+
+        // Follow up update to ensure clean state
+        setTimeout(() => {
+          drivesCache = null;
+          win?.webContents.send("drives-changed");
+        }, 1000);
+      } else if (wValue === 0x8000) {
+        // Device Insertion: Poll multiple times to catch the drive as soon as it mounts
+        // Windows needs time to assign a drive letter, so we check at increasing intervals
+        drivesCache = null;
+        [500, 1000, 2000, 4000].forEach((delay) => {
+          setTimeout(() => {
+            drivesCache = null;
+            win?.webContents.send("drives-changed");
+          }, delay);
+        });
+      }
+    });
+  }
 }
 
 app.on("window-all-closed", () => {
@@ -880,20 +1004,34 @@ app.whenReady().then(() => {
       { role: "selectAll" },
     ];
     const menu = Menu.buildFromTemplate(template as any);
-    menu.popup({ window: BrowserWindow.fromWebContents(event.sender) || undefined });
+    menu.popup({
+      window: BrowserWindow.fromWebContents(event.sender) || undefined,
+    });
   });
 
   ipcMain.on("edit-action", (event, action) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
-    
+
     switch (action) {
-      case "undo": win.webContents.undo(); break;
-      case "redo": win.webContents.redo(); break;
-      case "cut": win.webContents.cut(); break;
-      case "copy": win.webContents.copy(); break;
-      case "paste": win.webContents.paste(); break;
-      case "selectAll": win.webContents.selectAll(); break;
+      case "undo":
+        win.webContents.undo();
+        break;
+      case "redo":
+        win.webContents.redo();
+        break;
+      case "cut":
+        win.webContents.cut();
+        break;
+      case "copy":
+        win.webContents.copy();
+        break;
+      case "paste":
+        win.webContents.paste();
+        break;
+      case "selectAll":
+        win.webContents.selectAll();
+        break;
     }
   });
 
@@ -927,9 +1065,6 @@ app.whenReady().then(() => {
     }
   });
 
-  loadInstalledAppsCache().finally(() => {
-    warmInstalledAppsCache();
-  });
   createWindow();
 });
 
@@ -967,8 +1102,79 @@ function setCachedDir(dirPath: string, data: any[]) {
   dirCache.set(dirPath, { data, timestamp: Date.now() });
 }
 
+const listMtpContent = async (deviceName: string, relativePath: string) => {
+  const psScript = `
+    $deviceName = "${deviceName.replace(/"/g, '`"')}"
+    $relativePath = "${(relativePath || "").replace(/"/g, '`"')}"
+    $shell = New-Object -ComObject Shell.Application
+    $pc = $shell.NameSpace(17)
+    $device = $pc.Items() | Where-Object { $_.Name -eq $deviceName } | Select-Object -First 1
+    
+    if (!$device) { return @() }
+    
+    $current = $device.GetFolder
+    if ($relativePath) {
+        $parts = $relativePath -split "[/\\\\]"
+        foreach ($part in $parts) {
+            if (!$part) { continue }
+            $found = $current.Items() | Where-Object { $_.Name -eq $part } | Select-Object -First 1
+            if ($found -and $found.IsFolder) {
+                $current = $found.GetFolder
+            } else {
+               return @() 
+            }
+        }
+    }
+    
+    $items = $current.Items()
+    $data = @()
+    foreach ($item in $items) {
+        $data += @{
+            name = $item.Name
+            isDirectory = $item.IsFolder
+            size = 0
+            modifiedAt = 0
+            createdAt = 0
+        }
+    }
+    $data | ConvertTo-Json -Compress
+  `;
+
+  try {
+    const encodedCommand = Buffer.from(psScript, "utf16le").toString("base64");
+    const { stdout } = await execAsync(
+      `powershell -NoProfile -EncodedCommand ${encodedCommand}`,
+    );
+    if (!stdout || !stdout.trim()) return [];
+    const parsed = JSON.parse(stdout);
+    return (Array.isArray(parsed) ? parsed : [parsed]).map((item: any) => ({
+      name: item.name,
+      path: `mtp://${deviceName}/${relativePath ? relativePath + "/" : ""}${item.name}`,
+      isDirectory: item.isDirectory,
+      size: item.size || 0,
+      modifiedAt: Date.now(),
+      createdAt: Date.now(),
+    }));
+  } catch (e) {
+    console.error("MTP List Error:", e);
+    return [];
+  }
+};
+
 ipcMain.handle("list-dir", async (_event, dirPath: string) => {
   try {
+    // Handle MTP devices - In-app listing via PowerShell/COM
+    if (dirPath.startsWith("mtp://")) {
+      const raw = dirPath.replace(/\\/g, "/");
+      const match = raw.match(/^mtp:\/\/([^\/]+)(?:\/(.*))?$/);
+      if (match) {
+        const deviceName = decodeURIComponent(match[1]);
+        const relativePath = match[2] ? decodeURIComponent(match[2]) : "";
+        return await listMtpContent(deviceName, relativePath);
+      }
+      return [];
+    }
+
     // Check cache first
     const cached = getCachedDir(dirPath);
     if (cached) return cached;
@@ -1016,28 +1222,151 @@ ipcMain.handle("list-dir", async (_event, dirPath: string) => {
   }
 });
 
-ipcMain.handle("get-drives", async () => {
-  try {
-    if (process.platform === "win32") {
-      const { stdout } = await execAsync(
-        'powershell "Get-PSDrive -PSProvider FileSystem | Select-Object Name, Used, Free"',
-      );
-      const lines = stdout.trim().split("\n").slice(2);
-      return lines.map((line) => {
-        const [name, used, free] = line.trim().split(/\s+/);
-        const usedNum = parseInt(used) || 0;
-        const freeNum = parseInt(free) || 0;
-        return {
-          name: `${name}:`,
-          path: `${name}:\\`,
-          used: usedNum,
-          free: freeNum,
-          total: usedNum + freeNum,
-        };
-      });
+let drivesCache: { data: any[]; ts: number } | null = null;
+const DRIVES_CACHE_TTL = 30000; // 30 seconds
+
+const fetchDrives = async () => {
+  if (process.platform !== "win32") return [];
+
+  let formattedDrives: any[] = [];
+
+  // Parallel execution for speed
+  const [psStdout, wpdStdout] = await Promise.all([
+    (async () => {
+      try {
+        const cmd = `Get-PSDrive -PSProvider FileSystem | Select-Object Name, Used, Free, Root, Description, DisplayRoot | ConvertTo-Json -Compress`;
+        const { stdout } = await execAsync(
+          `powershell -NoProfile -Command "${cmd}"`,
+        );
+        return stdout;
+      } catch (e) {
+        console.error("PSDrive error:", e);
+        return "";
+      }
+    })(),
+    (async () => {
+      try {
+        const cmd = `Get-PnpDevice -PresentOnly | Where-Object { $_.Class -eq 'WPD' } | Select-Object FriendlyName, InstanceId, Class | ConvertTo-Json -Compress`;
+        const { stdout } = await execAsync(
+          `powershell -NoProfile -Command "${cmd}"`,
+        );
+        return stdout;
+      } catch (e) {
+        console.error("WPD error:", e);
+        return "";
+      }
+    })(),
+  ]);
+
+  // Process Fixed Drives (PSDrive)
+  if (psStdout && psStdout.trim()) {
+    try {
+      const parsed = JSON.parse(psStdout);
+      const drives = Array.isArray(parsed) ? parsed : [parsed];
+      formattedDrives = drives
+        .map((d: any) => {
+          const name = d.Name;
+          const used = d.Used || 0;
+          const free = d.Free || 0;
+          const total = used + free;
+          return {
+            name: `${name}:`,
+            path: d.Root || `${name}:\\`,
+            volumeName: d.Description || d.DisplayRoot || "Local Disk",
+            used,
+            free,
+            total,
+            type: "Fixed",
+            isRemovable: false,
+          };
+        })
+        .filter(Boolean);
+    } catch (e) {
+      console.error("JSON parse error for Get-PSDrive:", e);
     }
-    return [];
+  }
+
+  // Process WPD/MTP Drives
+  if (wpdStdout && wpdStdout.trim()) {
+    try {
+      const parsed = JSON.parse(wpdStdout);
+      const wpdDevices = Array.isArray(parsed) ? parsed : [parsed];
+
+      const existingNames = new Set(
+        formattedDrives.map((d) => d.volumeName.toLowerCase()),
+      );
+      const existingLetters = new Set(
+        formattedDrives.map((d) => d.name.replace(/[\\:]/g, "").toLowerCase()),
+      );
+
+      const mtpDrives = wpdDevices
+        .filter((d: any) => {
+          if (!d.FriendlyName) return false;
+          const nameLower = d.FriendlyName.toLowerCase();
+          if (/^[a-z]:\\?$/.test(nameLower)) return false;
+          if (existingNames.has(nameLower)) return false;
+          if (existingLetters.has(nameLower.replace(/[\\:]/g, "")))
+            return false;
+          return true;
+        })
+        .map((d: any) => ({
+          name: d.FriendlyName || "Portable Device",
+          path: `mtp://${d.FriendlyName}`,
+          volumeName: d.FriendlyName || "Portable Device",
+          used: 0,
+          free: 0,
+          total: 0,
+          type: "MTP",
+          isRemovable: true,
+          isMTP: true,
+        }));
+
+      if (mtpDrives.length > 0) {
+        formattedDrives = [...formattedDrives, ...mtpDrives];
+      }
+    } catch (e) {
+      console.error("WPD/MTP detection failed:", e);
+    }
+  }
+
+  return formattedDrives;
+};
+
+// Polling for drive changes to ensure UI updates even if hook misses
+setInterval(async () => {
+  if (!win || win.isDestroyed()) return;
+
+  try {
+    const currentDrives = await fetchDrives();
+    const currentStr = JSON.stringify(currentDrives);
+    const cacheStr = drivesCache ? JSON.stringify(drivesCache.data) : "";
+
+    if (currentStr !== cacheStr) {
+      drivesCache = { data: currentDrives, ts: Date.now() };
+      win.webContents.send("drives-changed");
+    }
+  } catch (e) {
+    console.error("Drive polling error:", e);
+  }
+}, 3000); // Check every 3 seconds
+
+ipcMain.handle("get-drives", async (_event, forceRefresh: boolean = false) => {
+  try {
+    if (
+      !forceRefresh &&
+      drivesCache &&
+      Date.now() - drivesCache.ts < DRIVES_CACHE_TTL
+    ) {
+      return drivesCache.data;
+    }
+
+    const drives = await fetchDrives();
+    if (drives.length > 0) {
+      drivesCache = { data: drives, ts: Date.now() };
+    }
+    return drives;
   } catch (error: any) {
+    console.error("Error getting drives:", error);
     return [];
   }
 });
@@ -1954,91 +2283,225 @@ ipcMain.handle(
     }
   },
 );
-ipcMain.handle("deep-search", async (_event, query: string, searchId: string) => {
-  if (!query || query.trim().length < 2) return;
-  const normalizedQuery = query.toLowerCase();
-  let results: any[] = [];
-  const maxResults = 1000;
-  const timeout = 15000;
-  const startTime = Date.now();
-  const chunkSize = 20;
+ipcMain.handle(
+  "deep-search",
+  async (_event, query: string, searchId: string) => {
+    if (!query || query.trim().length < 2) return;
+    let results: any[] = [];
+    const chunkSize = 50;
 
-  const skipFolders = new Set([
-    "node_modules",
-    ".git",
-    "$recycle.bin",
-    "system volume information",
-    "perflogs",
-    "config.msi",
-  ]);
+    // Sanitize query for different search methods
+    const sanitizedQuery = query.trim();
+    // For SQL/Everything, replace spaces with wildcards or handle multiple terms
+    const wildQuery = sanitizedQuery.replace(/\s+/g, "%");
+    const esQuery = sanitizedQuery.replace(/\s+/g, "*");
 
-  const sendBatch = () => {
-    if (results.length > 0) {
-      _event.sender.send("deep-search-update", { results, isComplete: false, searchId });
-      results = [];
-    }
-  };
+    const sendBatch = () => {
+      if (results.length > 0) {
+        _event.sender.send("deep-search-update", {
+          results: [...results],
+          isComplete: false,
+          searchId,
+        });
+        results = [];
+      }
+    };
 
-  const searchDir = async (dir: string, depth = 0) => {
-    if (Date.now() - startTime > timeout || depth > 8) return;
-
+    // TIER 0: Direct check for common paths and Desktop/Documents
     try {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (Date.now() - startTime > timeout) break;
+      const home = os.homedir();
+      const quickCheckPaths = [
+        path.join(home, "Desktop"),
+        path.join(home, "Documents"),
+        path.join(home, "Downloads"),
+      ];
 
-        const fullPath = path.join(dir, entry.name);
-        const nameLower = entry.name.toLowerCase();
-
-        if (nameLower.includes(normalizedQuery)) {
-          const stats = await fs.stat(fullPath).catch(() => null);
-          if (stats) {
+      for (const base of quickCheckPaths) {
+        if (!fs_native.existsSync(base)) continue;
+        const items = await fs.readdir(base);
+        for (const item of items) {
+          // Case-insensitive match for the query in the name
+          if (
+            item.toLowerCase().includes(sanitizedQuery.toLowerCase()) ||
+            item
+              .toLowerCase()
+              .includes(sanitizedQuery.replace(/\s+/g, "_").toLowerCase())
+          ) {
+            const fullPath = path.join(base, item);
             results.push({
-              name: entry.name,
+              name: item,
               path: fullPath,
-              isDirectory: entry.isDirectory(),
-              size: stats.size,
-              modifiedAt: stats.mtimeMs,
+              isDirectory: fs_native.statSync(fullPath).isDirectory(),
+              size: 0,
+              modifiedAt: Date.now(),
             });
-
-            if (results.length >= chunkSize) {
-              sendBatch();
-            }
           }
         }
-
-        if (entry.isDirectory() && !skipFolders.has(nameLower) && !entry.name.startsWith(".")) {
-          await searchDir(fullPath, depth + 1);
-        }
       }
-    } catch (e) {
-      // Ignore permission errors
-    }
-  };
+      if (results.length > 0) sendBatch();
+    } catch (e) {}
 
-  // Detect all drives
-  let drives: string[] = ["C:\\"];
-  try {
-    if (process.platform === "win32") {
-      const { stdout } = await execAsync('powershell "Get-PSDrive -PSProvider FileSystem | Select-Object Name"');
-      const lines = stdout.trim().split("\n").slice(2);
-      drives = lines.map(l => `${l.trim()}:\\`).filter(d => d.length >= 3);
-    }
-  } catch (e) {}
+    // 1. Try "Everything" CLI (es.exe) if available
+    try {
+      const { stdout: esPath } = await execAsync("where es.exe").catch(() => ({
+        stdout: "",
+      }));
+      if (esPath) {
+        // Use *wildcards* for spaces to handle things like "Web Development" -> "Web_Development"
+        const esProcess = spawn("es.exe", ["-n", "5000", `*${esQuery}*`]);
+        let buffer = "";
+        esProcess.stdout.on("data", (data) => {
+          buffer += data.toString();
+          const lines = buffer.split("\r\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const fullPath = line.trim();
+            if (!fullPath) continue;
+            results.push({
+              name: path.basename(fullPath),
+              path: fullPath,
+              isDirectory: !path.extname(fullPath),
+              size: 0,
+              modifiedAt: Date.now(),
+            });
+            if (results.length >= chunkSize) sendBatch();
+          }
+        });
 
-  // Search all drives in parallel
-  await Promise.all(drives.map(async (drive) => {
-    if (drive.toLowerCase() === "c:\\") {
-      const homeDir = os.homedir();
-      await searchDir(path.join(homeDir, "Desktop"));
-      await searchDir(path.join(homeDir, "Documents"));
-      await searchDir(path.join(drive, "Users"), 0);
-    } else {
-      await searchDir(drive, 0);
-    }
-  }));
+        await new Promise((resolve) => esProcess.on("close", resolve));
+        sendBatch();
+      }
+    } catch (e) {}
 
-  // Send final batch and completion signal
-  sendBatch();
-  _event.sender.send("deep-search-update", { results: [], isComplete: true, searchId });
-});
+    // 2. Try Windows Search Indexer via PowerShell
+    try {
+      const psCommand = `
+        $query = "${wildQuery}"
+        $sql = "SELECT TOP 5000 System.ItemName, System.ItemPathDisplay, System.Size, System.DateModified FROM SystemIndex WHERE (System.ItemName LIKE '%$query%' OR System.ItemPathDisplay LIKE '%$query%') ORDER BY System.DateModified DESC"
+        $conn = New-Object -ComObject ADODB.Connection
+        $rs = New-Object -ComObject ADODB.Recordset
+        $conn.Open("Provider=Search.CollatorDSO;Extended Properties='Application=Windows';")
+        $rs.Open($sql, $conn)
+        while(-not $rs.EOF) {
+          $item = @{
+            name = $rs.Fields.Item("System.ItemName").Value
+            path = $rs.Fields.Item("System.ItemPathDisplay").Value
+            size = $rs.Fields.Item("System.Size").Value
+            modified = $rs.Fields.Item("System.DateModified").Value
+          }
+          $item | ConvertTo-Json -Compress
+          $rs.MoveNext()
+        }
+      `;
+      const ps = spawn("powershell", ["-Command", psCommand]);
+      let buffer = "";
+      ps.stdout.on("data", (data) => {
+        buffer += data.toString();
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          try {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            const item = JSON.parse(trimmed);
+            results.push({
+              name: item.name,
+              path: item.path,
+              isDirectory: !path.extname(item.path),
+              size: item.size || 0,
+              modifiedAt: item.modified ? new Date(item.modified).getTime() : 0,
+            });
+            if (results.length >= chunkSize) sendBatch();
+          } catch (e) {}
+        }
+      });
+
+      await new Promise((resolve) => ps.on("close", resolve));
+      sendBatch();
+    } catch (e) {}
+
+    // 3. Fallback to fast DIR command with flexible matching across all drives and user folders
+    let drives: string[] = ["C"];
+    let userPaths: string[] = [];
+    try {
+      const { stdout: driveOut } = await execAsync(
+        'powershell "Get-PSDrive -PSProvider FileSystem | Select-Object Name"',
+      ).catch(() => ({ stdout: "Name\n----\nC" }));
+      const lines = driveOut.trim().split("\n").slice(2);
+      drives = lines
+        .map((l) => l.trim())
+        .filter((d) => d.length === 1 && d !== "A" && d !== "B");
+      if (drives.length === 0) drives = ["C"];
+
+      // Explicitly target user library paths
+      const home = os.homedir();
+      userPaths = [
+        path.join(home, "Desktop"),
+        path.join(home, "Documents"),
+        path.join(home, "Downloads"),
+      ].filter((p) => {
+        try {
+          return fs_native.existsSync(p);
+        } catch (e) {
+          return false;
+        }
+      });
+    } catch (e) {}
+
+    const searchPoints = [
+      ...userPaths.map((p) => ({ path: p, isDrive: false })),
+      ...drives.map((d) => ({ path: `${d}:\\`, isDrive: true })),
+    ];
+
+    const seenPaths = new Set<string>();
+
+    const searchPromises = searchPoints.map(async (point) => {
+      return new Promise<void>((resolve) => {
+        const dirQuery = sanitizedQuery.replace(/\s+/g, "*");
+        const cmd = point.isDrive
+          ? spawn("cmd.exe", [
+              "/c",
+              `cd /d ${point.path} && dir /s /b /a *${dirQuery}*`,
+            ])
+          : spawn("cmd.exe", [
+              "/c",
+              `dir /s /b /a "${path.join(point.path, `*${dirQuery}*`)}"`,
+            ]);
+
+        let buffer = "";
+        cmd.stdout.on("data", (data) => {
+          buffer += data.toString();
+          const lines = buffer.split("\r\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const fullPath = line.trim();
+            if (!fullPath || seenPaths.has(fullPath.toLowerCase())) continue;
+
+            seenPaths.add(fullPath.toLowerCase());
+            results.push({
+              name: path.basename(fullPath),
+              path: fullPath,
+              isDirectory: !path.extname(fullPath),
+              size: 0,
+              modifiedAt: Date.now(),
+            });
+            if (results.length >= chunkSize) sendBatch();
+          }
+        });
+        cmd.on("close", () => resolve());
+        setTimeout(() => {
+          cmd.kill();
+          resolve();
+        }, 20000);
+      });
+    });
+
+    await Promise.all(searchPromises);
+    sendBatch();
+    _event.sender.send("deep-search-update", {
+      results: [],
+      isComplete: true,
+      searchId,
+    });
+  },
+);

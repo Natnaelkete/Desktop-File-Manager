@@ -68,6 +68,10 @@ const RenameDialog: React.FC<RenameDialogProps> = ({
                   autoFocus
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
+                  onContextMenu={(e) => {
+                    e.stopPropagation();
+                    (window as any).electronAPI.showContextMenu();
+                  }}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary-500 outline-none transition-all"
                 />
               </div>

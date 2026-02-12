@@ -47,7 +47,31 @@ import TabBar from "./TabBar";
 import BatchRenameDialog from "./BatchRenameDialog";
 import RenameDialog from "./RenameDialog";
 import { FixedSizeList as List, areEqual } from "react-window";
-import { AutoSizer } from "react-virtualized-auto-sizer";
+
+function useContainerSize() {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const observerRef = useRef<ResizeObserver | null>(null);
+
+  const ref = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+
+    if (node) {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          setSize({ width, height });
+        }
+      });
+      observer.observe(node);
+      observerRef.current = observer;
+    }
+  }, []);
+
+  return { ref, width: size.width, height: size.height };
+}
 
 interface FilePanelProps {
   side: "left" | "right" | "bottomLeft" | "bottomRight";
@@ -72,9 +96,25 @@ const FileRow = memo(
       isLibraryView,
       handleDragStart,
       handleContextMenu,
+      updateFileSize,
+      side,
+      tabId,
+      viewMode,
     } = data;
     const file = files[index];
     if (!file) return null;
+
+    useEffect(() => {
+      if (file.isDirectory && !file.sizeCalculated && viewMode === "list") {
+        (window as any).electronAPI
+          .getAdvancedStats(file.path)
+          .then((stats: any) => {
+            if (stats && !stats.error) {
+              updateFileSize(side, tabId, file.path, stats.totalSize);
+            }
+          });
+      }
+    }, [file, side, tabId, updateFileSize, viewMode]);
 
     return (
       <div
@@ -107,7 +147,7 @@ const FileRow = memo(
           )}
         </div>
         <div className="flex-1 text-xs text-slate-500 overflow-hidden whitespace-nowrap">
-          {file.isDirectory ? "--" : formatSize(file.size)}
+          {formatSize(file.size)}
         </div>
         <div className="flex-1 text-xs text-slate-500 overflow-hidden whitespace-nowrap">
           {new Date(file.modifiedAt).toLocaleDateString()}
@@ -125,6 +165,11 @@ const FileRow = memo(
 );
 
 const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
+  const {
+    ref: listContainerRef,
+    width: listWidth,
+    height: listHeight,
+  } = useContainerSize();
   const activeTabId = useStore((state: any) => {
     if (side === "left") return state.activeLeftTabId;
     if (side === "right") return state.activeRightTabId;
@@ -176,6 +221,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     isPathLocked,
     setPinCredentials,
     clearPendingSelection,
+    updateFileSize,
   } = useStore();
 
   const pinHash = useStore((state: any) => state.pinHash);
@@ -754,7 +800,11 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
     if (action === "delete" && selection.length > 0) {
       const { confirmOnDelete } = useStore.getState();
       if (confirmOnDelete) {
-        if (!confirm(`Are you sure you want to delete ${selection.length} item(s)?`)) {
+        if (
+          !confirm(
+            `Are you sure you want to delete ${selection.length} item(s)?`,
+          )
+        ) {
           setMenuPos(null);
           return;
         }
@@ -1201,36 +1251,33 @@ const FilePanel: React.FC<FilePanelProps> = ({ side }) => {
               <div className="w-8"></div>
             </div>
             <div className="flex-1 min-h-0 relative w-full">
-              {(() => {
-                const AutoSizerAny = AutoSizer as any;
-                return (
-                  <AutoSizerAny>
-                    {({ height, width }: { height: number; width: number }) => (
-                      <List
-                        ref={listRef}
-                        height={height || 600}
-                        itemCount={filteredFiles.length}
-                        itemSize={44}
-                        width={width || 800}
-                        overscanCount={5}
-                        className="scrollbar-thin"
-                        itemData={{
-                          files: filteredFiles,
-                          selection,
-                          handleFileClick,
-                          handleDoubleClick,
-                          formatSize,
-                          isLibraryView: tab.path.startsWith("library://"),
-                          handleDragStart,
-                          handleContextMenu: handleItemContextMenu,
-                        }}
-                      >
-                        {FileRow}
-                      </List>
-                    )}
-                  </AutoSizerAny>
-                );
-              })()}
+              <div ref={listContainerRef} className="absolute inset-0">
+                <List
+                  ref={listRef}
+                  height={listHeight}
+                  itemCount={filteredFiles.length}
+                  itemSize={44}
+                  width={listWidth}
+                  overscanCount={5}
+                  className="scrollbar-thin"
+                  itemData={{
+                    files: filteredFiles,
+                    selection,
+                    handleFileClick,
+                    handleDoubleClick,
+                    formatSize,
+                    isLibraryView: tab.path.startsWith("library://"),
+                    handleDragStart,
+                    handleContextMenu: handleItemContextMenu,
+                    updateFileSize,
+                    side,
+                    tabId: activeTabId,
+                    viewMode,
+                  }}
+                >
+                  {FileRow}
+                </List>
+              </div>
             </div>
           </div>
         ) : (

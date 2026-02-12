@@ -119,28 +119,35 @@ const App: React.FC = () => {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const searchDropdownRef = useRef<HTMLDivElement>(null);
   const [selectedIndex, setSelectedIndex] = useState(-1);
-  const [visibleLimit, setVisibleLimit] = useState(50);
+  const [visibleLimit, setVisibleLimit] = useState(100);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, clientHeight, scrollHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop - clientHeight < 100) {
-      setVisibleLimit(prev => Math.min(prev + 50, searchResults.length));
+    if (scrollHeight - scrollTop - clientHeight < 200) {
+      setVisibleLimit((prev) => Math.min(prev + 100, searchResults.length));
     }
   };
 
   // Deep search logic
   useEffect(() => {
     // Listen for streaming updates
-    const removeListener = (window as any).electronAPI.onDeepSearchUpdate((data: any) => {
-      if (data.searchId !== currentSearchIdRef.current) return;
-      
-      if (data.results && data.results.length > 0) {
-        appendSearchResults(data.results);
-      }
-      if (data.isComplete) {
-        setIsSearching(false);
-      }
-    });
+    const removeListener = (window as any).electronAPI.onDeepSearchUpdate(
+      (data: any) => {
+        if (data.searchId !== currentSearchIdRef.current) return;
+
+        if (data.results && data.results.length > 0) {
+          appendSearchResults(data.results);
+          // If we're at the bottom, auto-expand visible limit to show new results
+          setVisibleLimit((prev) => {
+            if (prev < 100) return 100;
+            return prev;
+          });
+        }
+        if (data.isComplete) {
+          setIsSearching(false);
+        }
+      },
+    );
 
     return () => {
       if (typeof removeListener === "function") removeListener();
@@ -151,7 +158,7 @@ const App: React.FC = () => {
     if (!searchQuery || searchQuery.trim().length < 2) {
       setIsSearching(false);
       currentSearchIdRef.current = null;
-      setVisibleLimit(50);
+      setVisibleLimit(100);
       return;
     }
 
@@ -159,18 +166,15 @@ const App: React.FC = () => {
     const timer = setTimeout(async () => {
       const searchId = Date.now().toString();
       currentSearchIdRef.current = searchId;
-      
+
       setIsSearching(true);
       setSearchResults([]); // Clear old results
-      setVisibleLimit(50); // Reset limit
+      setVisibleLimit(100); // Reset limit
       setSelectedIndex(-1);
-      
+
       // Trigger search - results will come via onDeepSearchUpdate
-      await (window as any).electronAPI.deepSearch(
-        searchQuery, 
-        searchId
-      );
-    }, 400);
+      await (window as any).electronAPI.deepSearch(searchQuery, searchId);
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [searchQuery, setSearchResults, setIsSearching]);
@@ -178,8 +182,11 @@ const App: React.FC = () => {
   // Click outside search
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (searchDropdownRef.current && !searchDropdownRef.current.contains(e.target as Node) && 
-          !(e.target instanceof HTMLInputElement)) {
+      if (
+        searchDropdownRef.current &&
+        !searchDropdownRef.current.contains(e.target as Node) &&
+        !(e.target instanceof HTMLInputElement)
+      ) {
         setShowSearchDropdown(false);
       }
     };
@@ -188,24 +195,63 @@ const App: React.FC = () => {
   }, []);
 
   const handleSearchResultClick = async (result: any) => {
-    const activeTabId = activeSide === "left" ? activeLeftTabId : activeRightTabId;
+    setActiveView("explorer");
+    const activeTabId =
+      activeSide === "left" ? activeLeftTabId : activeRightTabId;
     // For navigation, we usually want to go to the parent folder and select the file
     // but the navigateTo currently takes a folder path.
     // If it's a directory, go there. If it's a file, go to its parent.
-    const targetPath = result.isDirectory ? result.path : await (window as any).electronAPI.pathDirname(result.path);
+    const targetPath = result.isDirectory
+      ? result.path
+      : await (window as any).electronAPI.pathDirname(result.path);
     navigateTo(activeSide, activeTabId, targetPath, result.path);
     setShowSearchDropdown(false);
     setSearchQuery("");
   };
 
   useEffect(() => {
+    // Disable hotkeys library in inputs to allow native Electron shortcuts (Ctrl+C, Ctrl+V, etc.)
+    hotkeys.filter = function (event) {
+      const target = (event.target || event.srcElement) as HTMLElement;
+      const tagName = target.tagName;
+      // If we are in an input or textarea, don't trigger hotkeys library logic
+      return !(
+        tagName === "INPUT" ||
+        tagName === "TEXTAREA" ||
+        target.isContentEditable
+      );
+    };
+
     // Keyboard navigation
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Prevent back navigation when typing in input fields
-      if (
+      const isInput =
         e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
+        e.target instanceof HTMLTextAreaElement;
+
+      // Handle Manual Shortcuts for Copy/Paste/etc. to bypass native issues
+      if (e.ctrlKey || e.metaKey) {
+        const key = e.key.toLowerCase();
+        let action: string | null = null;
+
+        if (key === "c") action = "copy";
+        else if (key === "v") action = "paste";
+        else if (key === "x") action = "cut";
+        else if (key === "a") action = "selectAll";
+        else if (key === "z") action = "undo";
+        else if (key === "y") action = "redo";
+
+        if (action) {
+          // If we are in an input, we want to perform the action
+          if (isInput) {
+            // No e.preventDefault() here because we want the native action to also try to trigger
+            // but we call the IPC action as a backup/guarantee
+            (window as any).electronAPI.editAction(action);
+          }
+        }
+      }
+
+      // Prevent back navigation when typing in input fields
+      if (isInput) {
         return;
       }
 
@@ -343,21 +389,27 @@ const App: React.FC = () => {
                 onFocus={() => setShowSearchDropdown(true)}
                 onKeyDown={(e) => {
                   if (e.key === "ArrowDown") {
-                    setSelectedIndex(prev => Math.min(prev + 1, searchResults.length - 1));
+                    setSelectedIndex((prev) =>
+                      Math.min(prev + 1, searchResults.length - 1),
+                    );
                   } else if (e.key === "ArrowUp") {
-                    setSelectedIndex(prev => Math.max(prev - 1, 0));
+                    setSelectedIndex((prev) => Math.max(prev - 1, 0));
                   } else if (e.key === "Enter" && selectedIndex >= 0) {
                     handleSearchResultClick(searchResults[selectedIndex]);
                   } else if (e.key === "Escape") {
                     setShowSearchDropdown(false);
                   }
                 }}
+                onContextMenu={(e) => {
+                  e.stopPropagation();
+                  (window as any).electronAPI.showContextMenu();
+                }}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary-500 transition-all outline-none"
               />
 
               <AnimatePresence>
-                {showSearchDropdown && (searchQuery.length >= 2) && (
+                {showSearchDropdown && searchQuery.length >= 2 && (
                   <motion.div
                     ref={searchDropdownRef}
                     initial={{ opacity: 0, y: 10 }}
@@ -369,55 +421,92 @@ const App: React.FC = () => {
                       {isSearching && searchResults.length === 0 ? (
                         <div className="flex items-center justify-center h-full gap-3 text-slate-500">
                           <Loader2 className="animate-spin" size={18} />
-                          <span className="text-sm font-medium">Searching deep...</span>
+                          <span className="text-sm font-medium">
+                            Searching deep...
+                          </span>
                         </div>
                       ) : searchResults.length > 0 ? (
-                        <div 
+                        <div
                           className="h-[400px] overflow-y-auto scrollbar-hide"
                           onScroll={handleScroll}
                         >
-                          {searchResults.slice(0, visibleLimit).map((result, index) => (
-                            <div
-                              key={result.path}
-                              onClick={() => handleSearchResultClick(result)}
-                              onMouseEnter={() => setSelectedIndex(index)}
-                              className={clsx(
-                                "px-3 py-2 flex items-center gap-4 cursor-pointer group border-b border-slate-100 dark:border-slate-800 last:border-0",
-                                selectedIndex === index ? "bg-primary-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"
-                              )}
-                            >
-                              <div className="flex items-center gap-3 w-full">
-                                {result.isDirectory ? (
-                                  <FolderIcon size={18} className={selectedIndex === index ? "text-white" : "text-amber-500"} />
-                                ) : (
-                                  <File size={18} className={selectedIndex === index ? "text-white" : "text-slate-400"} />
+                          {searchResults
+                            .slice(0, visibleLimit)
+                            .map((result, index) => (
+                              <div
+                                key={result.path}
+                                onClick={() => handleSearchResultClick(result)}
+                                onMouseEnter={() => setSelectedIndex(index)}
+                                className={clsx(
+                                  "px-3 py-2 flex items-center gap-4 cursor-pointer group border-b border-slate-100 dark:border-slate-800 last:border-0",
+                                  selectedIndex === index
+                                    ? "bg-primary-500 text-white"
+                                    : "hover:bg-slate-100 dark:hover:bg-slate-800",
                                 )}
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-sm font-semibold truncate">{result.name}</div>
-                                  <div className={clsx(
-                                    "text-[10px] truncate opacity-60",
-                                    selectedIndex === index ? "text-white" : "text-slate-500"
-                                  )}>
-                                    {result.path}
+                              >
+                                <div className="flex items-center gap-3 w-full">
+                                  {result.isDirectory ? (
+                                    <FolderIcon
+                                      size={18}
+                                      className={
+                                        selectedIndex === index
+                                          ? "text-white"
+                                          : "text-amber-500"
+                                      }
+                                    />
+                                  ) : (
+                                    <File
+                                      size={18}
+                                      className={
+                                        selectedIndex === index
+                                          ? "text-white"
+                                          : "text-slate-400"
+                                      }
+                                    />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-semibold truncate">
+                                      {result.name}
+                                    </div>
+                                    <div
+                                      className={clsx(
+                                        "text-[10px] truncate opacity-60",
+                                        selectedIndex === index
+                                          ? "text-white"
+                                          : "text-slate-500",
+                                      )}
+                                    >
+                                      {result.path}
+                                    </div>
                                   </div>
+                                  <ChevronRight
+                                    size={14}
+                                    className="opacity-0 group-hover:opacity-100"
+                                  />
                                 </div>
-                                <ChevronRight size={14} className="opacity-0 group-hover:opacity-100" />
                               </div>
-                            </div>
-                          ))}
+                            ))}
                           {visibleLimit < searchResults.length && (
-                             <div className="py-2 text-center text-xs text-slate-400">Loading more...</div>
+                            <div className="py-2 text-center text-xs text-slate-400">
+                              Loading more...
+                            </div>
                           )}
                         </div>
                       ) : !isSearching ? (
                         <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-500">
-                          <div className="text-sm">No results found for "{searchQuery}"</div>
-                          <div className="text-[10px] mt-1">Deep search covers Desktop, Documents and Drives.</div>
+                          <div className="text-sm">
+                            No results found for "{searchQuery}"
+                          </div>
+                          <div className="text-[10px] mt-1">
+                            Deep search covers Desktop, Documents and Drives.
+                          </div>
                         </div>
                       ) : (
                         <div className="flex items-center justify-center h-full gap-3 text-slate-500">
                           <Loader2 className="animate-spin" size={18} />
-                          <span className="text-sm font-medium">Found {searchResults.length} results...</span>
+                          <span className="text-sm font-medium">
+                            Found {searchResults.length} results...
+                          </span>
                         </div>
                       )}
                     </div>
@@ -469,11 +558,13 @@ const App: React.FC = () => {
             >
               <Grid size={20} />
             </button>
-            <button 
+            <button
               onClick={() => setActiveView("settings")}
               className={clsx(
                 "p-2 rounded-lg transition-colors",
-                activeView === "settings" ? "bg-primary-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+                activeView === "settings"
+                  ? "bg-primary-500 text-white"
+                  : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500",
               )}
             >
               <Settings size={20} />

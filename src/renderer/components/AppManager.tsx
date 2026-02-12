@@ -55,13 +55,13 @@ const AppIcon: React.FC<{ app: AppInfo }> = ({ app }) => {
   }, [app.icon]);
 
   if (!error && iconUrl) {
-    return <img src={iconUrl} className="w-7 h-7 object-contain" />;
+    return <img src={iconUrl} className="w-5 h-5 object-contain" />;
   }
 
   return (
     <Package
       className="text-slate-400 group-hover:text-primary-500 transition-colors"
-      size={24}
+      size={18}
     />
   );
 };
@@ -374,6 +374,10 @@ const AppManager: React.FC = () => {
                 placeholder="Search..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onContextMenu={(e) => {
+                  e.stopPropagation();
+                  (window as any).electronAPI.showContextMenu();
+                }}
                 className="w-full bg-slate-100 dark:bg-slate-800/50 border-none rounded-xl py-2 pl-9 pr-3 text-xs font-semibold focus:ring-2 focus:ring-primary-500/30 transition-all shadow-inner"
               />
             </div>
@@ -489,33 +493,35 @@ const AppManager: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="min-w-[980px] pb-4">
+          <div className="min-w-[700px] bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-xl shadow-slate-200/20 overflow-hidden">
             {/* Headers */}
-            <div className="flex items-center px-6 py-3 bg-slate-100 dark:bg-slate-800/50 rounded-xl mb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[980px]">
-              <div className="w-12 h-4 mr-4" /> {/* Icon spacer */}
-              <div className="w-[320px]">Program Name</div>
-              <div className="w-[220px]">Publisher</div>
-              <div className="w-[120px]">Version</div>
-              <div className="w-[120px] text-center">Size</div>
-              <div className="w-[120px] ml-4">Action</div>
+            <div className="flex items-center px-8 py-4 bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-400 uppercase tracking-widest w-full">
+              <div className="w-9 h-4 mr-4 flex-shrink-0" /> {/* Icon spacer */}
+              <div className="flex-[2] min-w-[200px] pr-4">Program Name</div>
+              <div className="flex-1 min-w-[150px] pr-4">Publisher</div>
+              <div className="w-[100px] flex-shrink-0">Version</div>
+              <div className="w-[100px] text-center flex-shrink-0">Size</div>
+              <div className="w-[120px] ml-4 flex-shrink-0">Action</div>
             </div>
 
-            <div className="space-y-2">
+            <div>
               <AnimatePresence>
-                {filteredApps.map((app) => (
+                {filteredApps.map((app, index) => (
                   <motion.div
                     layout
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
                     key={app.fullName || app.name}
-                    className="bg-white dark:bg-slate-900 px-6 py-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:border-primary-500/50 transition-all flex items-center group relative overflow-hidden w-[980px]"
+                    className={clsx(
+                      "px-8 py-3 flex items-center group transition-all relative w-full border-b border-slate-50 dark:border-slate-800/50 last:border-0 hover:bg-primary-50/30 dark:hover:bg-primary-500/5",
+                    )}
                   >
-                    <div className="w-12 h-12 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex items-center justify-center border border-slate-100 dark:border-slate-700 shadow-inner group-hover:scale-105 transition-transform flex-shrink-0 mr-4">
+                    <div className="w-9 h-9 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex items-center justify-center border border-slate-100 dark:border-slate-700 shadow-inner group-hover:scale-105 transition-transform flex-shrink-0 mr-4">
                       <AppIcon app={app} />
                     </div>
 
-                    <div className="w-[320px] min-w-0 pr-4">
-                      <h3 className="font-bold text-slate-800 dark:text-white truncate group-hover:text-primary-500 transition-colors">
+                    <div className="flex-[2] min-w-[200px] pr-4 overflow-hidden">
+                      <h3 className="font-bold text-slate-700 dark:text-slate-200 truncate group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
                         {app.name}
                       </h3>
                       {app.isUWP && (
@@ -525,15 +531,15 @@ const AppManager: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="w-[220px] min-w-0 text-xs text-slate-500 font-medium truncate pr-4">
+                    <div className="flex-1 min-w-[150px] text-xs text-slate-500 font-medium truncate pr-4">
                       {app.publisher}
                     </div>
 
-                    <div className="w-[120px] text-[10px] text-slate-400 font-bold whitespace-nowrap">
+                    <div className="w-[100px] flex-shrink-0 text-[10px] text-slate-400 font-bold whitespace-nowrap">
                       v{app.version}
                     </div>
 
-                    <div className="w-[120px] text-center">
+                    <div className="w-[100px] flex-shrink-0 text-center">
                       {app.size > 0 ? (
                         <span className="text-[10px] font-black text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
                           {formatSize(app.size)}
@@ -545,15 +551,15 @@ const AppManager: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="w-[120px] ml-4 flex-shrink-0">
+                    <div className="w-[120px] ml-4 flex-shrink-0 text-center">
                       <button
                         onClick={() => handleUninstall(app)}
                         disabled={uninstalling === app.name}
                         className={clsx(
-                          "w-full py-2.5 rounded-xl font-bold text-[11px] transition-all flex items-center justify-center gap-2",
+                          "transition-all flex items-center justify-center gap-2 mx-auto",
                           uninstalling === app.name
-                            ? "bg-amber-500/10 text-amber-600"
-                            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-rose-500/10 hover:text-rose-500 border border-transparent hover:border-rose-500/20",
+                            ? "w-full py-1.5 rounded-xl bg-amber-500/10 text-amber-600 font-bold text-[11px]"
+                            : "w-8 h-8 rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-500/10",
                         )}
                       >
                         {uninstalling === app.name ? (
@@ -563,7 +569,7 @@ const AppManager: React.FC = () => {
                           </>
                         ) : (
                           <>
-                            <Trash2 size={12} />
+                            <Trash2 size={18} />
                           </>
                         )}
                       </button>
