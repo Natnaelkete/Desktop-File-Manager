@@ -434,7 +434,7 @@ const App: React.FC = () => {
                             .slice(0, visibleLimit)
                             .map((result, index) => (
                               <div
-                                key={result.path}
+                                key={`${result.path}-${index}`}
                                 onClick={() => handleSearchResultClick(result)}
                                 onMouseEnter={() => setSelectedIndex(index)}
                                 className={clsx(
